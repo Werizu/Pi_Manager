@@ -43,7 +43,11 @@ def rsync_project(config: dict, name: str) -> bool:
     ]
 
     console.print(f"[cyan]Syncing {name}...[/cyan]")
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.stdout:
+        console.print(result.stdout.rstrip())
+    if result.returncode != 0 and result.stderr:
+        console.print(f"[red]{result.stderr.rstrip()}[/red]")
     return result.returncode == 0
 
 
@@ -83,10 +87,10 @@ def deploy(config: dict, name: str) -> None:
             console.print(f"Available: {', '.join(projects.keys())}")
         return
 
-    with console.status(f"[bold green]Deploying {name}..."):
-        if not rsync_project(config, name):
-            console.print("[red]Deploy failed at rsync step.[/red]")
-            return
+    console.print(f"[bold green]Deploying {name}...[/bold green]")
+    if not rsync_project(config, name):
+        console.print("[red]Deploy failed at rsync step.[/red]")
+        return
 
     console.print("[green]Rsync complete.[/green]")
 

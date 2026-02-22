@@ -76,4 +76,4 @@ def open_ssh_session(config: dict) -> None:
     )
 
     console.print("[cyan]Opening SSH in new terminal...[/cyan]")
-    subprocess.run(["osascript", "-e", applescript])
+    subprocess.run(["osascript", "-e", applescript], capture_output=True)
