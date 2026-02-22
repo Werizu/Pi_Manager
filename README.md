@@ -28,7 +28,6 @@ brew install pipx
 
 # Clone the repo (use SSH if you have it set up)
 git clone https://github.com/Werizu/Pi_Manager.git
-# or: git clone git@github.com:Werizu/pi-manager.git
 cd Pi_Manager
 
 # Install
