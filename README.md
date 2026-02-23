@@ -10,7 +10,7 @@ A command-line tool for managing one or more Raspberry Pis from macOS. Deploy we
 - **One-shot CLI** — run `pi status` or `pi deploy my-site` directly from your terminal for scripting
 - **Self-updating** — run `pi update` to pull the latest version and reinstall
 - **System monitoring** — CPU, RAM, disk, temperature, uptime at a glance
-- **Service management** — check status, restart individual services or all at once
+- **Service management** — check status, start, stop, or restart individual services or all at once
 - **Log viewing** — tail Apache error logs, with optional real-time streaming
 - **One-command deploys** — rsync to Pi, restart Apache, purge Cloudflare cache
 - **SSH** — opens in a new Terminal.app window so the REPL stays running
@@ -67,7 +67,7 @@ Run `pi` with no arguments to enter the interactive shell:
 
 ```
 $ pi
-  PiManager  v0.2.1
+  PiManager  v0.2.2
   2 Pis: homepi(192.168.1.100) · mediaserver(192.168.1.101)
 
   Type help for commands, exit to quit
@@ -78,7 +78,7 @@ pi > use                 # numbered Pi selection:
                          #   2) mediaserver (192.168.1.101)
                          #   0) Cancel
                          # > 2
-pi > status              # now shows mediaserver only
+pi > status              # shows all Pis
 pi > deploy              # numbered project selection
 pi > restart             # numbered service selection
 pi > status --pi homepi  # explicit Pi via flag
@@ -102,6 +102,10 @@ pi status --pi homepi        # specific Pi
 pi deploy my-site            # uses Pi from project config
 pi deploy my-site --pi mediaserver  # override target Pi
 pi services --pi homepi
+pi stop apache2 --pi homepi  # stop a service
+pi start apache2             # start a service
+pi ping                      # check all Pis reachable
+pi ping --pi homepi          # check specific Pi
 pi update                    # self-update from git
 pi list-pis
 pi add-pi
@@ -119,6 +123,11 @@ pi add-pi
 | `restart` | Numbered service selection, then restart |
 | `restart <service>` | Restart a specific service |
 | `restart all` | Restart all monitored services |
+| `stop` | Numbered service selection, then stop |
+| `stop <service>` | Stop a specific service |
+| `start` | Numbered service selection, then start |
+| `start <service>` | Start a specific service |
+| `ping` | Check if all Pis are reachable via SSH (with response time) |
 | `ssh` | Open SSH in a new Terminal.app window |
 | `deploy` | Numbered project selection, then deploy |
 | `deploy <name>` | Deploy a specific project (rsync + cache purge) |
@@ -140,8 +149,8 @@ pi add-pi
 | `exit` / `quit` | Exit the REPL |
 
 All commands that target a specific Pi accept `--pi <name>` for scripting. Without it:
-- `status` and `services` show **all Pis**
-- `use`, `deploy`, and `restart` without arguments show a **numbered selection list**
+- `status`, `services`, and `ping` show **all Pis**
+- `use`, `deploy`, `restart`, `stop`, and `start` without arguments show a **numbered selection list**
 - Other commands use the **active Pi** (set via `use`) or the **default Pi**
 
 ## Configuration
@@ -223,7 +232,7 @@ pi-manager/
 │   ├── config.py       # Config loading, saving, setup wizard, multi-Pi helpers
 │   ├── ssh.py          # SSH connection, remote commands, Terminal.app integration
 │   ├── monitor.py      # System status, services, log viewing
-│   ├── services.py     # Service restart, shutdown, reboot
+│   ├── services.py     # Service start, stop, restart, shutdown, reboot
 │   └── deploy.py       # Rsync deploy + Cloudflare cache purge
 ├── pyproject.toml
 └── README.md

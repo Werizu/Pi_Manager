@@ -63,6 +63,22 @@ def get_ssh_client(config: dict) -> paramiko.SSHClient:
     return _connect(config)
 
 
+def ping_pi(config: dict) -> None:
+    """Check if a Pi is reachable via SSH and show response time."""
+    import time as _time
+
+    host = config["pi_host"]
+    console.print(f"[cyan]Pinging {host} via SSH...[/cyan]")
+    start = _time.monotonic()
+    try:
+        client = _connect(config)
+        elapsed_ms = (_time.monotonic() - start) * 1000
+        client.close()
+        console.print(f"[green]Reachable — {elapsed_ms:.0f} ms[/green]")
+    except SSHError as e:
+        console.print(f"[red]Unreachable — {e}[/red]")
+
+
 def open_ssh_session(config: dict) -> None:
     """Open an interactive SSH session in a new Terminal.app window."""
     key_path = Path(config["ssh_key_path"]).expanduser()

@@ -229,6 +229,53 @@ def restart(ctx, service, pi_name):
 
 
 @cli.command()
+@click.argument("service")
+@pi_option
+@click.pass_context
+def stop(ctx, service, pi_name):
+    """Stop a service on a Pi."""
+    from .services import stop_service
+
+    config = ctx.obj["config"]
+    pi_name = resolve_pi(config, pi_name)
+    pi_cfg = get_pi_config(config, pi_name)
+    stop_service(pi_cfg, service)
+
+
+@cli.command()
+@click.argument("service")
+@pi_option
+@click.pass_context
+def start(ctx, service, pi_name):
+    """Start a service on a Pi."""
+    from .services import start_service
+
+    config = ctx.obj["config"]
+    pi_name = resolve_pi(config, pi_name)
+    pi_cfg = get_pi_config(config, pi_name)
+    start_service(pi_cfg, service)
+
+
+@cli.command()
+@pi_option
+@click.pass_context
+def ping(ctx, pi_name):
+    """Check if a Pi is reachable via SSH and show response time."""
+    from .ssh import ping_pi
+
+    config = ctx.obj["config"]
+    if pi_name:
+        pi_cfg = get_pi_config(config, pi_name)
+        console.print(f"\n[bold cyan]--- {pi_name} ---[/bold cyan]")
+        ping_pi(pi_cfg)
+    else:
+        for name in get_pi_names(config):
+            pi_cfg = get_pi_config(config, name)
+            console.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+            ping_pi(pi_cfg)
+
+
+@cli.command()
 @pi_option
 @click.pass_context
 def ssh(ctx, pi_name):

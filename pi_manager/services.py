@@ -8,6 +8,26 @@ console = Console()
 DEFAULT_SERVICES = ["apache2", "mariadb", "cloudflared"]
 
 
+def stop_service(config: dict, service: str) -> None:
+    """Stop a single service on the Pi."""
+    console.print(f"[cyan]Stopping {service}...[/cyan]")
+    stdout, stderr, code = run_remote(config, f"sudo systemctl stop {service}")
+    if code == 0:
+        console.print(f"[green]{service} stopped.[/green]")
+    else:
+        console.print(f"[red]Failed to stop {service}: {stderr}[/red]")
+
+
+def start_service(config: dict, service: str) -> None:
+    """Start a single service on the Pi."""
+    console.print(f"[cyan]Starting {service}...[/cyan]")
+    stdout, stderr, code = run_remote(config, f"sudo systemctl start {service}")
+    if code == 0:
+        console.print(f"[green]{service} started.[/green]")
+    else:
+        console.print(f"[red]Failed to start {service}: {stderr}[/red]")
+
+
 def restart_service(config: dict, service: str) -> None:
     """Restart a single service on the Pi."""
     console.print(f"[cyan]Restarting {service}...[/cyan]")

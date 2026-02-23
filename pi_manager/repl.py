@@ -41,7 +41,8 @@ from .config import (
 # ---------------------------------------------------------------------------
 
 COMMANDS = [
-    "status", "services", "logs", "restart", "ssh", "deploy",
+    "status", "services", "logs", "restart", "stop", "start", "ping",
+    "ssh", "deploy",
     "config", "setup", "shutdown", "reboot", "update",
     "uninstall", "help", "clear", "exit", "quit",
     "list-pis", "add-pi", "remove-pi", "use",
@@ -56,6 +57,11 @@ HELP_TABLE = [
     ("restart", "Restart a service (numbered selection)"),
     ("restart <service>", "Restart a specific service (--pi <name>)"),
     ("restart all", "Restart all monitored services"),
+    ("stop", "Stop a service (numbered selection)"),
+    ("stop <service>", "Stop a specific service (--pi <name>)"),
+    ("start", "Start a service (numbered selection)"),
+    ("start <service>", "Start a specific service (--pi <name>)"),
+    ("ping", "Check if Pis are reachable via SSH"),
     ("ssh", "Open SSH in a new Terminal window (numbered Pi selection)"),
     ("deploy", "Deploy a project (numbered selection)"),
     ("deploy <name>", "Deploy a specific project (--pi <name>)"),
@@ -184,7 +190,7 @@ def _get_header() -> HTML:
     if pi_count == 0:
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n'
             '  <style fg="ansibrightblack">No Pis configured — run </style><b>setup</b>'
             '<style fg="ansibrightblack"> or </style><b>add-pi</b>\n'
         )
@@ -198,7 +204,7 @@ def _get_header() -> HTML:
         info = pis[name]
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n'
             f'  <ansicyan>{name}</ansicyan>'
             f' <style fg="ansibrightblack">({info.get("user", "pi")}@{info["host"]})</style>\n'
         )
@@ -206,7 +212,7 @@ def _get_header() -> HTML:
     # Multiple Pis: show all, mark active
     lines = [
         "\n",
-        '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n',
+        '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n',
         f'  <style fg="ansibrightblack">{pi_count} Pis:</style> ',
     ]
     parts = []
@@ -277,12 +283,8 @@ def _dispatch_captured(args: list[str]) -> str:
                     pi_cfg = get_pi_config(_config, pi_name)
                     cap.print(f"\n[bold cyan]--- {pi_name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
                     show_status(pi_cfg)
-                elif _active_pi:
-                    pi_cfg = get_pi_config(_config, _active_pi)
-                    cap.print(f"\n[bold cyan]--- {_active_pi} ({pi_cfg['pi_host']}) ---[/bold cyan]")
-                    show_status(pi_cfg)
                 else:
-                    # All Pis
+                    # Always show all Pis
                     for name in get_pi_names(_config):
                         pi_cfg = get_pi_config(_config, name)
                         cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
@@ -294,11 +296,8 @@ def _dispatch_captured(args: list[str]) -> str:
                     pi_cfg = get_pi_config(_config, pi_name)
                     cap.print(f"\n[bold cyan]--- {pi_name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
                     show_services(pi_cfg)
-                elif _active_pi:
-                    pi_cfg = get_pi_config(_config, _active_pi)
-                    cap.print(f"\n[bold cyan]--- {_active_pi} ({pi_cfg['pi_host']}) ---[/bold cyan]")
-                    show_services(pi_cfg)
                 else:
+                    # Always show all Pis
                     for name in get_pi_names(_config):
                         pi_cfg = get_pi_config(_config, name)
                         cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
@@ -333,6 +332,36 @@ def _dispatch_captured(args: list[str]) -> str:
                         restart_all(pi_cfg)
                     else:
                         restart_service(pi_cfg, rest[0])
+
+            elif cmd == "stop":
+                from .services import stop_service
+                if not rest:
+                    cap.print("[yellow]Usage: stop <service>[/yellow]")
+                else:
+                    effective_pi = _resolve_effective_pi(pi_name)
+                    pi_cfg = get_pi_config(_config, effective_pi)
+                    stop_service(pi_cfg, rest[0])
+
+            elif cmd == "start":
+                from .services import start_service
+                if not rest:
+                    cap.print("[yellow]Usage: start <service>[/yellow]")
+                else:
+                    effective_pi = _resolve_effective_pi(pi_name)
+                    pi_cfg = get_pi_config(_config, effective_pi)
+                    start_service(pi_cfg, rest[0])
+
+            elif cmd == "ping":
+                from .ssh import ping_pi
+                if pi_name:
+                    pi_cfg = get_pi_config(_config, pi_name)
+                    cap.print(f"\n[bold cyan]--- {pi_name} ---[/bold cyan]")
+                    ping_pi(pi_cfg)
+                else:
+                    for name in get_pi_names(_config):
+                        pi_cfg = get_pi_config(_config, name)
+                        cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+                        ping_pi(pi_cfg)
 
             elif cmd == "ssh":
                 from .ssh import open_ssh_session
@@ -801,6 +830,100 @@ def _run_restart_select() -> None:
         console.print(f"[red]Error: {e}[/red]")
 
 
+def _run_stop_select() -> None:
+    """Interactive service selection for 'stop' without arguments."""
+    console = Console()
+
+    try:
+        effective_pi = _resolve_effective_pi(None)
+    except Exception:
+        pi_names = get_pi_names(_config)
+        if not pi_names:
+            console.print("[yellow]No Pis configured.[/yellow]")
+            return
+        items = [(n, f"{n} ({_config['pis'][n]['host']})") for n in pi_names]
+        try:
+            effective_pi = numbered_select(items, "Select a Pi")
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+        if not effective_pi:
+            return
+
+    from .ssh import SSHError
+
+    try:
+        pi_cfg = get_pi_config(_config, effective_pi)
+        services = pi_cfg.get("services", [])
+
+        if not services:
+            console.print(f"[yellow]No services configured for {effective_pi}.[/yellow]")
+            return
+
+        items = [(s, s) for s in services]
+        try:
+            selected = numbered_select(items, f"Stop service on {effective_pi}")
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+        if not selected:
+            return
+
+        from .services import stop_service
+        stop_service(pi_cfg, selected)
+    except SSHError as e:
+        console.print(f"[red]{e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+def _run_start_select() -> None:
+    """Interactive service selection for 'start' without arguments."""
+    console = Console()
+
+    try:
+        effective_pi = _resolve_effective_pi(None)
+    except Exception:
+        pi_names = get_pi_names(_config)
+        if not pi_names:
+            console.print("[yellow]No Pis configured.[/yellow]")
+            return
+        items = [(n, f"{n} ({_config['pis'][n]['host']})") for n in pi_names]
+        try:
+            effective_pi = numbered_select(items, "Select a Pi")
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+        if not effective_pi:
+            return
+
+    from .ssh import SSHError
+
+    try:
+        pi_cfg = get_pi_config(_config, effective_pi)
+        services = pi_cfg.get("services", [])
+
+        if not services:
+            console.print(f"[yellow]No services configured for {effective_pi}.[/yellow]")
+            return
+
+        items = [(s, s) for s in services]
+        try:
+            selected = numbered_select(items, f"Start service on {effective_pi}")
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+        if not selected:
+            return
+
+        from .services import start_service
+        start_service(pi_cfg, selected)
+    except SSHError as e:
+        console.print(f"[red]{e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
 def _run_update() -> None:
     """Update PiManager from git repo."""
     global _config
@@ -887,6 +1010,10 @@ def _on_accept(buff) -> None:
         interactive_handler = _run_deploy_select
     elif cmd == "restart" and len(args) == 1:
         interactive_handler = _run_restart_select
+    elif cmd == "stop" and len(args) == 1:
+        interactive_handler = _run_stop_select
+    elif cmd == "start" and len(args) == 1:
+        interactive_handler = _run_start_select
 
     if interactive_handler is not None:
         _busy = True
