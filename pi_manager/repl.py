@@ -244,8 +244,8 @@ def _get_hint() -> HTML:
         '  <style fg="ansibrightblack">Type </style>'
         "<b>help</b>"
         '<style fg="ansibrightblack"> for commands, </style>'
-        "<b>Shift+Tab</b>"
-        '<style fg="ansibrightblack"> to scroll output, </style>'
+        "<b>PgUp/PgDn</b>"
+        '<style fg="ansibrightblack"> to scroll, </style>'
         "<b>exit</b>"
         '<style fg="ansibrightblack"> to quit</style>'
     )
@@ -1151,14 +1151,6 @@ def start_repl() -> None:
     @kb.add("c-d")
     def _exit(event):
         event.app.exit()
-
-    @kb.add("s-tab")
-    def _toggle_focus(event):
-        """Toggle focus between input and output areas."""
-        if event.app.layout.has_focus(input_area):
-            event.app.layout.focus(output_window)
-        else:
-            event.app.layout.focus(input_area)
 
     @kb.add("pageup")
     def _page_up(event):
