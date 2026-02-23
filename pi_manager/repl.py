@@ -12,7 +12,9 @@ from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import HTML, ANSI
+from prompt_toolkit.formatted_text.utils import split_lines
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl, BufferControl
@@ -93,6 +95,41 @@ HELP_TABLE = [
 INTERACTIVE_COMMANDS = {"setup", "shutdown", "reboot", "uninstall", "add-pi", "add-project", "update"}
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+class _AnsiStyleLexer(Lexer):
+    """Lexer that preserves ANSI colors from Rich output in a BufferControl."""
+
+    def __init__(self):
+        self._styled_lines: list[list[tuple[str, str]]] = []
+
+    def set_ansi_text(self, ansi_text: str) -> None:
+        if not ansi_text:
+            self._styled_lines = []
+            return
+        formatted = ANSI(ansi_text)
+        self._styled_lines = list(split_lines(formatted))
+
+    def lex_document(self, document):
+        lines = self._styled_lines
+
+        def get_line(lineno: int):
+            if lineno < len(lines):
+                return lines[lineno]
+            return []
+
+        return get_line
+
+
+# ---------------------------------------------------------------------------
 # Module state
 # ---------------------------------------------------------------------------
 
@@ -102,17 +139,7 @@ _output_text: str = ""
 _busy: bool = False
 _active_pi: str | None = None  # Session-level active Pi override
 _output_buffer: Buffer | None = None  # Scrollable output buffer
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def _strip_ansi(text: str) -> str:
-    return _ANSI_RE.sub("", text)
+_output_lexer = _AnsiStyleLexer()  # Lexer that preserves ANSI colors
 
 
 def _term_width() -> int:
@@ -963,9 +990,10 @@ def _run_uninstall() -> None:
 
 
 def _set_output(text: str) -> None:
-    """Update the output buffer with new text (strips ANSI codes)."""
+    """Update the output buffer with new text, preserving colors via lexer."""
     global _output_text
     _output_text = text
+    _output_lexer.set_ansi_text(text)
     if _output_buffer is not None:
         plain = _strip_ansi(text)
         _output_buffer.set_document(Document(plain, cursor_position=0), bypass_readonly=True)
@@ -1115,7 +1143,7 @@ def start_repl() -> None:
     _self._output_buffer = _output_buffer
 
     output_window = Window(
-        content=BufferControl(buffer=_output_buffer, focusable=True),
+        content=BufferControl(buffer=_output_buffer, lexer=_output_lexer, focusable=True),
         wrap_lines=True,
         right_margins=[ScrollbarMargin(display_arrows=True)],
     )
