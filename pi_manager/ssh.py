@@ -66,7 +66,7 @@ def get_ssh_client(config: dict) -> paramiko.SSHClient:
 def open_ssh_session(config: dict) -> None:
     """Open an interactive SSH session in a new Terminal.app window."""
     key_path = Path(config["ssh_key_path"]).expanduser()
-    ssh_cmd = f"ssh -i {key_path} {config['pi_user']}@{config['pi_host']}"
+    ssh_cmd = f'ssh -i \\"{key_path}\\" {config["pi_user"]}@{config["pi_host"]}'
 
     applescript = (
         'tell application "Terminal"\n'

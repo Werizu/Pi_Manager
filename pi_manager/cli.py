@@ -361,10 +361,11 @@ def add_pi_cmd(ctx):
 
 
 @cli.command("remove-pi")
-@click.argument("name")
+@click.argument("name", nargs=-1, required=True)
 @click.pass_context
 def remove_pi_cmd(ctx, name):
     """Remove a Pi by name."""
+    name = " ".join(name)
     config = ctx.obj["config"]
 
     if remove_pi(config, name):
@@ -523,10 +524,11 @@ def list_projects_cmd(ctx):
 
 
 @cli.command("remove-project")
-@click.argument("name")
+@click.argument("name", nargs=-1, required=True)
 @click.pass_context
 def remove_project_cmd(ctx, name):
     """Remove a project by name."""
+    name = " ".join(name)
     config = ctx.obj["config"]
 
     if remove_project(config, name):

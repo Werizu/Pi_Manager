@@ -271,7 +271,9 @@ def _setup_single_pi(default_ssh_key: str = "~/.pi-manager/keys/id_rsa") -> tupl
         )
         click.echo("SSH key generated.")
 
-        # Copy key to Pi
+    # Copy key to Pi (always offer, not just for newly generated keys)
+    pub_key = ssh_key_path.with_suffix(".pub")
+    if pub_key.exists():
         if click.confirm(f"\nCopy SSH key to {pi_user}@{pi_host}?", default=True):
             subprocess.run(
                 ["ssh-copy-id", "-i", str(ssh_key_path), f"{pi_user}@{pi_host}"],

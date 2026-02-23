@@ -184,7 +184,7 @@ def _get_header() -> HTML:
     if pi_count == 0:
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.1.1</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n'
             '  <style fg="ansibrightblack">No Pis configured — run </style><b>setup</b>'
             '<style fg="ansibrightblack"> or </style><b>add-pi</b>\n'
         )
@@ -198,7 +198,7 @@ def _get_header() -> HTML:
         info = pis[name]
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.1.1</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n'
             f'  <ansicyan>{name}</ansicyan>'
             f' <style fg="ansibrightblack">({info.get("user", "pi")}@{info["host"]})</style>\n'
         )
@@ -206,7 +206,7 @@ def _get_header() -> HTML:
     # Multiple Pis: show all, mark active
     lines = [
         "\n",
-        '  <b>PiManager</b> <style fg="ansibrightblack">v0.1.1</style>\n',
+        '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.1</style>\n',
         f'  <style fg="ansibrightblack">{pi_count} Pis:</style> ',
     ]
     parts = []
@@ -375,13 +375,13 @@ def _dispatch_captured(args: list[str]) -> str:
                 if not rest:
                     cap.print("[yellow]Usage: remove-project <name>[/yellow]")
                 else:
-                    _project_remove(rest[0], cap)
+                    _project_remove(" ".join(rest), cap)
 
             elif cmd == "remove-pi":
                 if not rest:
                     cap.print("[yellow]Usage: remove-pi <name>[/yellow]")
                 else:
-                    _remove_pi(rest[0], cap)
+                    _remove_pi(" ".join(rest), cap)
 
             elif cmd == "use":
                 if not rest:
@@ -392,7 +392,7 @@ def _dispatch_captured(args: list[str]) -> str:
                         for i, n in enumerate(pi_names, 1):
                             cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
                 else:
-                    target = rest[0]
+                    target = " ".join(rest)
                     pi_names = get_pi_names(_config)
                     # Allow numeric selection: use 1, use 2, etc.
                     try:

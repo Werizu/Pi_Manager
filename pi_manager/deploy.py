@@ -37,7 +37,7 @@ def rsync_project(config: dict, name: str) -> bool:
         "--exclude", ".git",
         "--exclude", ".DS_Store",
         "--exclude", "node_modules",
-        "-e", f"ssh -i {key_path}",
+        "-e", f'ssh -i "{key_path}"',
         local_path,
         remote,
     ]
