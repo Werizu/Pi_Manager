@@ -9,6 +9,7 @@ from io import StringIO
 from prompt_toolkit import Application
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import HTML, ANSI, FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -98,6 +99,7 @@ _config: dict = {}
 _output_text: str = ""
 _busy: bool = False
 _active_pi: str | None = None  # Session-level active Pi override
+_output_scroll: int = 0  # Scroll offset for output window
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -190,7 +192,7 @@ def _get_header() -> HTML:
     if pi_count == 0:
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.3.0</style>\n'
             '  <style fg="ansibrightblack">No Pis configured — run </style><b>setup</b>'
             '<style fg="ansibrightblack"> or </style><b>add-pi</b>\n'
         )
@@ -204,7 +206,7 @@ def _get_header() -> HTML:
         info = pis[name]
         return HTML(
             "\n"
-            '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n'
+            '  <b>PiManager</b> <style fg="ansibrightblack">v0.3.0</style>\n'
             f'  <ansicyan>{name}</ansicyan>'
             f' <style fg="ansibrightblack">({info.get("user", "pi")}@{info["host"]})</style>\n'
         )
@@ -212,7 +214,7 @@ def _get_header() -> HTML:
     # Multiple Pis: show all, mark active
     lines = [
         "\n",
-        '  <b>PiManager</b> <style fg="ansibrightblack">v0.2.2</style>\n',
+        '  <b>PiManager</b> <style fg="ansibrightblack">v0.3.0</style>\n',
         f'  <style fg="ansibrightblack">{pi_count} Pis:</style> ',
     ]
     parts = []
@@ -233,6 +235,8 @@ def _get_hint() -> HTML:
         '  <style fg="ansibrightblack">Type </style>'
         "<b>help</b>"
         '<style fg="ansibrightblack"> for commands, </style>'
+        "<b>Tab</b>"
+        '<style fg="ansibrightblack"> to scroll output, </style>'
         "<b>exit</b>"
         '<style fg="ansibrightblack"> to quit</style>'
     )
@@ -959,7 +963,7 @@ def _run_uninstall() -> None:
 
 def _on_accept(buff) -> None:
     """Called when the user presses Enter in the input area."""
-    global _output_text, _busy, _active_pi
+    global _output_text, _busy, _active_pi, _output_scroll
 
     text = buff.text.strip()
     if not text:
@@ -969,9 +973,11 @@ def _on_accept(buff) -> None:
         args = shlex.split(text)
     except ValueError as e:
         _output_text = f"\033[31mParse error: {e}\033[0m\n"
+        _output_scroll = 0
         _app.invalidate()
         return
 
+    _output_scroll = 0
     cmd = args[0]
 
     # Exit
@@ -1095,8 +1101,15 @@ def start_repl() -> None:
 
     separator = Window(height=1, char="\u2500", style="class:separator")
 
+    def _output_cursor_pos():
+        return Point(0, _output_scroll)
+
     output_window = Window(
-        content=FormattedTextControl(_get_output, focusable=False),
+        content=FormattedTextControl(
+            _get_output,
+            focusable=True,
+            get_cursor_position=_output_cursor_pos,
+        ),
         wrap_lines=True,
         right_margins=[ScrollbarMargin(display_arrows=True)],
     )
@@ -1133,13 +1146,36 @@ def start_repl() -> None:
     def _exit(event):
         event.app.exit()
 
+    @kb.add("tab")
+    def _toggle_focus(event):
+        """Toggle focus between input and output areas."""
+        if event.app.layout.has_focus(input_area):
+            event.app.layout.focus(output_window)
+        else:
+            event.app.layout.focus(input_area)
+
+    def _scroll_output(delta: int):
+        global _output_scroll
+        line_count = _output_text.count("\n") + 1 if _output_text else 0
+        _output_scroll = max(0, min(_output_scroll + delta, max(0, line_count - 1)))
+
+    @kb.add("pageup")
+    def _page_up(event):
+        """Scroll output up regardless of focus."""
+        _scroll_output(-16)
+
+    @kb.add("pagedown")
+    def _page_down(event):
+        """Scroll output down regardless of focus."""
+        _scroll_output(16)
+
     # --- Application ---
 
     _app = Application(
         layout=layout,
         key_bindings=kb,
         full_screen=True,
-        mouse_support=False,
+        mouse_support=True,
     )
 
     _app.run()

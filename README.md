@@ -67,7 +67,7 @@ Run `pi` with no arguments to enter the interactive shell:
 
 ```
 $ pi
-  PiManager  v0.2.2
+  PiManager  v0.3.0
   2 Pis: homepi(192.168.1.100) · mediaserver(192.168.1.101)
 
   Type help for commands, exit to quit
