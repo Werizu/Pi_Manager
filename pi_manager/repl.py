@@ -12,7 +12,7 @@ from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import HTML, ANSI
+from prompt_toolkit.formatted_text import HTML, ANSI, to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.history import FileHistory
@@ -111,12 +111,28 @@ class _AnsiStyleLexer(Lexer):
     def __init__(self):
         self._styled_lines: list[list[tuple[str, str]]] = []
 
+    @staticmethod
+    def _merge(tuples):
+        """Merge consecutive same-style character tuples into strings."""
+        if not tuples:
+            return []
+        merged = []
+        cur_style, cur_text = tuples[0][0], tuples[0][1]
+        for style, text, *_ in tuples[1:]:
+            if style == cur_style:
+                cur_text += text
+            else:
+                merged.append((cur_style, cur_text))
+                cur_style, cur_text = style, text
+        merged.append((cur_style, cur_text))
+        return merged
+
     def set_ansi_text(self, ansi_text: str) -> None:
         if not ansi_text:
             self._styled_lines = []
             return
-        formatted = ANSI(ansi_text)
-        self._styled_lines = list(split_lines(formatted))
+        formatted = to_formatted_text(ANSI(ansi_text))
+        self._styled_lines = [self._merge(line) for line in split_lines(formatted)]
 
     def lex_document(self, document):
         lines = self._styled_lines
