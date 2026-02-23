@@ -3,6 +3,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from io import StringIO
 
 from prompt_toolkit import Application
@@ -19,16 +20,19 @@ from rich.table import Table
 
 from .config import (
     CONFIG_DIR,
+    UserExit,
     load_config,
     save_config,
     first_run_setup,
     add_project,
     remove_project,
+    remove_pi,
     get_pi_config,
     get_pi_names,
     get_default_pi,
     resolve_pi,
     add_pi,
+    prompt_with_exit,
 )
 
 # ---------------------------------------------------------------------------
@@ -37,9 +41,10 @@ from .config import (
 
 COMMANDS = [
     "status", "services", "logs", "restart", "ssh", "deploy",
-    "config", "project", "setup", "shutdown", "reboot",
+    "config", "setup", "shutdown", "reboot",
     "uninstall", "help", "clear", "exit", "quit",
-    "list-pis", "add-pi", "use",
+    "list-pis", "add-pi", "remove-pi", "use",
+    "add-project", "list-projects", "remove-project",
 ]
 
 HELP_TABLE = [
@@ -54,12 +59,13 @@ HELP_TABLE = [
     ("", ""),
     ("list-pis", "List all configured Pis"),
     ("add-pi", "Add a new Pi interactively"),
+    ("remove-pi <name>", "Remove a Pi"),
     ("use <pi-name>", "Set active Pi for this session"),
     ("", ""),
     ("config", "Show current configuration"),
-    ("project add", "Add a new deploy project"),
-    ("project list", "List configured projects"),
-    ("project remove <name>", "Remove a project"),
+    ("add-project", "Add a new deploy project"),
+    ("list-projects", "List configured projects"),
+    ("remove-project <name>", "Remove a project"),
     ("setup", "Re-run the setup wizard"),
     ("shutdown", "Shut down the active Pi"),
     ("reboot", "Reboot the active Pi"),
@@ -70,7 +76,7 @@ HELP_TABLE = [
 ]
 
 # Commands that need direct terminal access (interactive prompts)
-INTERACTIVE_COMMANDS = {"setup", "shutdown", "reboot", "uninstall", "add-pi"}
+INTERACTIVE_COMMANDS = {"setup", "shutdown", "reboot", "uninstall", "add-pi", "add-project"}
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -146,6 +152,19 @@ def _resolve_effective_pi(pi_name: str | None) -> str:
     if _active_pi:
         return resolve_pi(_config, _active_pi)
     return resolve_pi(_config, None)
+
+
+def _list_remote_dirs(pi_cfg: dict, base_path: str = "/var/www") -> list[str]:
+    """List directories on a Pi via SSH."""
+    from .ssh import run_remote
+
+    stdout, _, code = run_remote(
+        pi_cfg,
+        f'find {base_path} -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort',
+    )
+    if code == 0 and stdout.strip():
+        return [d.strip() for d in stdout.strip().split("\n") if d.strip()]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -341,24 +360,23 @@ def _dispatch_captured(args: list[str]) -> str:
             elif cmd == "config":
                 _show_config(cap)
 
-            elif cmd == "project":
-                if not rest:
-                    cap.print("[yellow]Usage: project add|list|remove <name>[/yellow]")
-                elif rest[0] == "list":
-                    _project_list(cap)
-                elif rest[0] == "remove":
-                    if len(rest) < 2:
-                        cap.print("[yellow]Usage: project remove <name>[/yellow]")
-                    else:
-                        _project_remove(rest[1], cap)
-                elif rest[0] == "add":
-                    # Interactive — handled separately, should not reach here
-                    cap.print("[yellow]Opening interactive prompt...[/yellow]")
-                else:
-                    cap.print(f"[yellow]Unknown subcommand: project {rest[0]}[/yellow]")
-
             elif cmd == "list-pis":
                 _list_pis(cap)
+
+            elif cmd == "list-projects":
+                _project_list(cap)
+
+            elif cmd == "remove-project":
+                if not rest:
+                    cap.print("[yellow]Usage: remove-project <name>[/yellow]")
+                else:
+                    _project_remove(rest[0], cap)
+
+            elif cmd == "remove-pi":
+                if not rest:
+                    cap.print("[yellow]Usage: remove-pi <name>[/yellow]")
+                else:
+                    _remove_pi(rest[0], cap)
 
             elif cmd == "use":
                 if not rest:
@@ -426,7 +444,7 @@ def _show_config(cap: Console) -> None:
         pi_table.add_column("Default")
 
         for name, info in pis.items():
-            is_default = "★" if name == default else ""
+            is_default = "\u2605" if name == default else ""
             svcs = ", ".join(info.get("services", [])) or "-"
             pi_table.add_row(name, info.get("host", ""), info.get("user", "pi"), svcs, is_default)
         cap.print(pi_table)
@@ -448,7 +466,7 @@ def _list_pis(cap: Console) -> None:
     table.add_column("Default")
 
     for name, info in pis.items():
-        is_default = "★" if name == default else ""
+        is_default = "\u2605" if name == default else ""
         svcs = ", ".join(info.get("services", [])) or "-"
         table.add_row(name, info.get("host", ""), info.get("user", "pi"), svcs, is_default)
 
@@ -458,7 +476,7 @@ def _list_pis(cap: Console) -> None:
 def _project_list(cap: Console) -> None:
     projects = _config.get("projects", {})
     if not projects:
-        cap.print("[yellow]No projects configured. Use 'project add' to add one.[/yellow]")
+        cap.print("[yellow]No projects configured. Use 'add-project' to add one.[/yellow]")
         return
     table = Table(title="Projects", show_header=True, header_style="bold cyan")
     table.add_column("Name", style="bold")
@@ -488,6 +506,16 @@ def _project_remove(name: str, cap: Console) -> None:
             cap.print(f"Available: {', '.join(projects.keys())}")
 
 
+def _remove_pi(name: str, cap: Console) -> None:
+    if remove_pi(_config, name):
+        cap.print(f"[green]Pi '{name}' removed.[/green]")
+    else:
+        cap.print(f"[red]Pi '{name}' not found.[/red]")
+        pis = _config.get("pis", {})
+        if pis:
+            cap.print(f"Available: {', '.join(pis.keys())}")
+
+
 # ---------------------------------------------------------------------------
 # Interactive command handlers (run in real terminal, not captured)
 # ---------------------------------------------------------------------------
@@ -495,35 +523,77 @@ def _project_remove(name: str, cap: Console) -> None:
 
 def _run_setup() -> None:
     global _config
-    _config = first_run_setup()
+    try:
+        _config = first_run_setup()
+    except UserExit:
+        Console().print("\n[yellow]Setup cancelled.[/yellow]")
 
 
-def _run_project_add() -> None:
+def _run_add_project() -> None:
     import click
     console = Console()
-    name = click.prompt("Project name")
-    if name in _config.get("projects", {}):
-        console.print(f"[yellow]Project '{name}' already exists.[/yellow]")
-        return
-    local_path = click.prompt("Local path (folder to sync)")
-    remote_path = click.prompt("Remote path on Pi (e.g. /var/www/my-site/)")
 
-    # Target Pi
-    pi_names = get_pi_names(_config)
-    if len(pi_names) == 1:
-        target_pi = pi_names[0]
-        console.print(f"Target Pi: {target_pi}")
-    elif pi_names:
-        target_pi = click.prompt(
-            f"Target Pi ({', '.join(pi_names)})",
-            default=_active_pi or get_default_pi(_config),
-        )
-    else:
-        target_pi = ""
+    try:
+        name = prompt_with_exit("Project name")
+        if name in _config.get("projects", {}):
+            console.print(f"[yellow]Project '{name}' already exists.[/yellow]")
+            return
+        local_path = prompt_with_exit("Local path (folder to sync)")
 
-    cf_zone = click.prompt("Cloudflare zone ID (leave empty to skip)", default="")
-    add_project(_config, name, local_path, remote_path, pi_name=target_pi, cloudflare_zone_id=cf_zone)
-    console.print(f"[green]Project '{name}' added.[/green]")
+        # Target Pi
+        pi_names = get_pi_names(_config)
+        if pi_names:
+            default_pi = _active_pi or get_default_pi(_config) or pi_names[0]
+            target_pi = prompt_with_exit(
+                f"Target Pi ({', '.join(pi_names)})",
+                default=default_pi,
+            )
+        else:
+            target_pi = ""
+
+        # Remote path: browse directories on Pi or enter manually
+        if target_pi and target_pi in _config.get("pis", {}):
+            pi_cfg = get_pi_config(_config, target_pi)
+            dirs = _list_remote_dirs(pi_cfg)
+
+            if dirs:
+                console.print("\n[cyan]Directories on Pi:[/cyan]")
+                for i, d in enumerate(dirs, 1):
+                    console.print(f"  {i}) {d}")
+                console.print(f"  {len(dirs) + 1}) Enter manually")
+                console.print(f"  0) Cancel")
+
+                while True:
+                    choice = prompt_with_exit("Choose", default=str(len(dirs) + 1))
+                    try:
+                        idx = int(choice)
+                    except ValueError:
+                        console.print("[yellow]Please enter a number.[/yellow]")
+                        continue
+
+                    if idx == 0:
+                        console.print("\n[yellow]Cancelled.[/yellow]")
+                        return
+                    if 1 <= idx <= len(dirs):
+                        remote_path = dirs[idx - 1]
+                        if not remote_path.endswith("/"):
+                            remote_path += "/"
+                        break
+                    if idx == len(dirs) + 1:
+                        remote_path = prompt_with_exit("Remote path on Pi (e.g. /var/www/my-site/)")
+                        break
+                    console.print("[yellow]Invalid choice.[/yellow]")
+            else:
+                remote_path = prompt_with_exit("Remote path on Pi (e.g. /var/www/my-site/)")
+        else:
+            remote_path = prompt_with_exit("Remote path on Pi (e.g. /var/www/my-site/)")
+
+        cf_zone = prompt_with_exit("Cloudflare zone ID (leave empty to skip)", default="")
+        add_project(_config, name, local_path, remote_path, pi_name=target_pi, cloudflare_zone_id=cf_zone)
+        console.print(f"[green]Project '{name}' added.[/green]")
+
+    except UserExit:
+        Console().print("\n[yellow]Cancelled.[/yellow]")
 
 
 def _run_add_pi() -> None:
@@ -534,7 +604,11 @@ def _run_add_pi() -> None:
     global _config
     console = Console()
 
-    pi_name, pi_dict = _setup_single_pi()
+    try:
+        pi_name, pi_dict = _setup_single_pi()
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
 
     if pi_name in _config.get("pis", {}):
         console.print(f"[yellow]Pi '{pi_name}' already exists. Use a different name.[/yellow]")
@@ -549,22 +623,25 @@ def _run_add_pi() -> None:
         services=pi_dict.get("services", []),
     )
 
-    # Ask for Cloudflare token if this Pi uses a different account
-    if _config.get("cloudflare_api_token"):
-        if not click.confirm(
-            f"\nUse the global Cloudflare token for {pi_name}?", default=True
-        ):
-            token = click.prompt(f"Cloudflare API token for {pi_name}", default="")
+    # Ask for Cloudflare token
+    try:
+        if _config.get("cloudflare_api_token"):
+            if not click.confirm(
+                f"\nUse the global Cloudflare token for {pi_name}?", default=True
+            ):
+                token = prompt_with_exit(f"Cloudflare API token for {pi_name}", default="")
+                if token:
+                    _config["pis"][pi_name]["cloudflare_api_token"] = token
+                    save_config(_config)
+        else:
+            token = prompt_with_exit(
+                f"\nCloudflare API token for {pi_name} (leave empty to skip)", default=""
+            )
             if token:
                 _config["pis"][pi_name]["cloudflare_api_token"] = token
                 save_config(_config)
-    else:
-        token = click.prompt(
-            f"\nCloudflare API token for {pi_name} (leave empty to skip)", default=""
-        )
-        if token:
-            _config["pis"][pi_name]["cloudflare_api_token"] = token
-            save_config(_config)
+    except UserExit:
+        pass  # Pi already added, just skip Cloudflare
 
     console.print(f"[green]Pi '{pi_name}' added.[/green]")
 
@@ -587,6 +664,7 @@ def _run_uninstall() -> None:
         console.print("[green]Config removed (~/.pi-manager)[/green]")
     console.print("[cyan]Uninstalling via pipx...[/cyan]")
     subprocess.run(["pipx", "uninstall", "pi-manager"])
+    sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -629,9 +707,7 @@ def _on_accept(buff) -> None:
         return
 
     # Interactive commands need real terminal access
-    is_interactive = cmd in INTERACTIVE_COMMANDS or (
-        cmd == "project" and len(args) > 1 and args[1] == "add"
-    )
+    is_interactive = cmd in INTERACTIVE_COMMANDS
 
     if is_interactive:
         _busy = True
@@ -649,9 +725,10 @@ def _on_accept(buff) -> None:
                 ),
                 "uninstall": _run_uninstall,
                 "add-pi": _run_add_pi,
+                "add-project": _run_add_project,
             }
 
-            func = handler.get(cmd, _run_project_add)
+            func = handler.get(cmd)
 
             try:
                 await run_in_terminal(func)
@@ -695,7 +772,11 @@ def start_repl() -> None:
 
     _config = load_config()
     if not _config:
-        _config = first_run_setup()
+        try:
+            _config = first_run_setup()
+        except UserExit:
+            Console().print("\n[yellow]Setup cancelled.[/yellow]")
+            sys.exit(0)
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -763,3 +844,4 @@ def start_repl() -> None:
     )
 
     _app.run()
+    sys.exit(0)

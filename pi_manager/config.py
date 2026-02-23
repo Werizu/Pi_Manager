@@ -18,6 +18,28 @@ DEFAULT_CONFIG = {
 
 
 # ---------------------------------------------------------------------------
+# Exit-aware prompts
+# ---------------------------------------------------------------------------
+
+
+class UserExit(Exception):
+    """Raised when user chooses to exit an interactive flow."""
+
+
+def prompt_with_exit(text, **kwargs):
+    """Like click.prompt but treats 'exit'/'quit' as cancellation."""
+    result = click.prompt(text, **kwargs)
+    if isinstance(result, str) and result.strip().lower() in ("exit", "quit", "q"):
+        raise UserExit()
+    return result
+
+
+def confirm_with_exit(text, **kwargs):
+    """Like click.confirm — user can type 'exit' to abort (counted as decline)."""
+    return click.confirm(text, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Multi-Pi helpers
 # ---------------------------------------------------------------------------
 
@@ -189,14 +211,18 @@ def test_connection(config: dict) -> bool:
 
 
 def _setup_single_pi(default_ssh_key: str = "~/.pi-manager/keys/id_rsa") -> tuple[str, dict]:
-    """Interactively configure a single Pi. Returns (name, pi_dict)."""
-    pi_name = click.prompt("Pi name (e.g. homepi, mediaserver)")
-    pi_host = click.prompt("Pi IP address or hostname")
-    pi_user = click.prompt("Pi username", default="pi")
+    """Interactively configure a single Pi. Returns (name, pi_dict).
 
-    ssh_key_path = Path(
-        click.prompt("SSH key path", default=default_ssh_key)
-    ).expanduser()
+    Raises UserExit if the user types 'exit' at any prompt.
+    """
+    click.echo("  (Type 'exit' at any prompt to cancel)\n")
+
+    pi_name = prompt_with_exit("Pi name (e.g. homepi, mediaserver)")
+    pi_host = prompt_with_exit("Pi IP address or hostname")
+    pi_user = prompt_with_exit("Pi username", default="pi")
+
+    ssh_key_input = prompt_with_exit("SSH key path", default=default_ssh_key)
+    ssh_key_path = Path(ssh_key_input).expanduser()
 
     # Generate SSH key if it doesn't exist
     if not ssh_key_path.exists():
@@ -215,7 +241,7 @@ def _setup_single_pi(default_ssh_key: str = "~/.pi-manager/keys/id_rsa") -> tupl
             )
 
     # Services
-    services_input = click.prompt(
+    services_input = prompt_with_exit(
         "\nServices to monitor (comma-separated)",
         default="apache2, mariadb, cloudflared",
     )
@@ -232,7 +258,12 @@ def _setup_single_pi(default_ssh_key: str = "~/.pi-manager/keys/id_rsa") -> tupl
 
 
 def first_run_setup() -> dict:
+    """Run the interactive setup wizard. Returns config dict.
+
+    Raises UserExit if the user cancels during setup.
+    """
     click.echo("Welcome to PiManager! Let's set things up.\n")
+    click.echo("  (Type 'exit' at any prompt to cancel)\n")
 
     # --- Pis ---
     pis = {}
@@ -255,18 +286,15 @@ def first_run_setup() -> dict:
         if len(pis) > 1 and not click.confirm(
             "Same Cloudflare account for all Pis?", default=True
         ):
-            # Different tokens per Pi
             click.echo("Enter a Cloudflare API token per Pi (leave empty to skip):")
             for pi_name_key in pis:
-                token = click.prompt(f"  Token for {pi_name_key}", default="")
+                token = prompt_with_exit(f"  Token for {pi_name_key}", default="")
                 if token:
                     pis[pi_name_key]["cloudflare_api_token"] = token
         else:
-            # One global token
-            cf_token = click.prompt("Cloudflare API token", default="")
+            cf_token = prompt_with_exit("Cloudflare API token", default="")
 
     # --- Projects ---
-    # Check if any Cloudflare token is configured (global or per-Pi)
     has_cf = bool(cf_token) or any(
         "cloudflare_api_token" in pi for pi in pis.values()
     )
@@ -276,18 +304,17 @@ def first_run_setup() -> dict:
     click.echo("Add projects you want to deploy to a Pi.")
     pi_names = list(pis.keys())
     while click.confirm("Add a project?", default=not projects):
-        name = click.prompt("  Project name")
-        local_path = click.prompt("  Local path (folder to sync)")
-        remote_path = click.prompt("  Remote path on Pi (e.g. /var/www/my-site/)")
+        name = prompt_with_exit("  Project name")
+        local_path = prompt_with_exit("  Local path (folder to sync)")
+        remote_path = prompt_with_exit("  Remote path on Pi (e.g. /var/www/my-site/)")
 
         # Which Pi?
-        if len(pi_names) == 1:
-            target_pi = pi_names[0]
-            click.echo(f"  Target Pi: {target_pi}")
-        else:
-            target_pi = click.prompt(
+        if pi_names:
+            target_pi = prompt_with_exit(
                 f"  Target Pi ({', '.join(pi_names)})", default=default_pi
             )
+        else:
+            target_pi = ""
 
         project: dict = {
             "local_path": local_path,
@@ -295,7 +322,7 @@ def first_run_setup() -> dict:
             "pi": target_pi,
         }
         if has_cf:
-            cf_zone = click.prompt("  Cloudflare zone ID (leave empty to skip)", default="")
+            cf_zone = prompt_with_exit("  Cloudflare zone ID (leave empty to skip)", default="")
             if cf_zone:
                 project["cloudflare_zone_id"] = cf_zone
         projects[name] = project

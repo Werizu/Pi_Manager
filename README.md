@@ -115,11 +115,12 @@ pi add-pi
 | `deploy <name>` | Rsync project to Pi + restart Apache + purge Cloudflare cache |
 | `list-pis` | List all configured Pis |
 | `add-pi` | Add a new Pi interactively |
+| `remove-pi <name>` | Remove a Pi |
 | `use <pi-name>` | Set active Pi for the REPL session |
 | `config` | Show current configuration |
-| `project add` | Add a new deploy project interactively |
-| `project list` | List all configured projects |
-| `project remove <name>` | Remove a project |
+| `add-project` | Add a new deploy project interactively (browses remote folders) |
+| `list-projects` | List all configured projects |
+| `remove-project <name>` | Remove a project |
 | `setup` | Re-run the setup wizard |
 | `shutdown` | Shut down the active Pi (asks for confirmation) |
 | `reboot` | Reboot the active Pi (asks for confirmation) |
@@ -188,7 +189,7 @@ Example `config.json`:
 
 **Migration:** If you're upgrading from v0.1.0, your old single-Pi config is automatically migrated to the new format on first load. No manual changes needed.
 
-You can edit the file directly or use `pi setup` / `pi project add` / `pi add-pi`.
+You can edit the file directly or use `pi setup` / `pi add-project` / `pi add-pi`.
 
 ## Deploy workflow
 
@@ -229,7 +230,7 @@ pi-manager/
 ## FAQ
 
 **Where is the config stored?**
-`~/.pi-manager/config.json`. Edit it directly or use `pi setup` / `pi project add`.
+`~/.pi-manager/config.json`. Edit it directly or use `pi setup` / `pi add-project`.
 
 **Where are the SSH keys stored?**
 In `~/.pi-manager/keys/`. This keeps them out of any project directory so they can't accidentally be committed to git.
@@ -253,7 +254,7 @@ Run `pi setup` to reconfigure, or edit `ssh_key_path` in the config file.
 Go to the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) and create a token with **Zone > Cache Purge > Purge** permission. Add it during setup or edit the config file.
 
 **Can I deploy multiple websites?**
-Yes. Run `project add` for each site (assign each to a Pi), then `deploy <name>` to deploy individually.
+Yes. Run `add-project` for each site (assign each to a Pi), then `deploy <name>` to deploy individually.
 
 **How do I monitor custom services?**
 Enter your services as a comma-separated list during setup, or edit the `services` array per Pi in the config file.
