@@ -39,6 +39,43 @@ def confirm_with_exit(text, **kwargs):
     return click.confirm(text, **kwargs)
 
 
+def numbered_select(
+    items: list[tuple[str, str]],
+    prompt_text: str = "Select",
+    allow_cancel: bool = True,
+) -> str | None:
+    """Show a numbered list and return the selected value.
+
+    items: list of (value, display_label) tuples.
+    Returns the value of the selected item, or None if cancelled.
+    Raises UserExit if user types exit/quit.
+    """
+    if not items:
+        return None
+
+    if len(items) == 1 and not allow_cancel:
+        return items[0][0]
+
+    click.echo(f"\n{prompt_text}:")
+    for i, (_value, label) in enumerate(items, 1):
+        click.echo(f"  {i}) {label}")
+    if allow_cancel:
+        click.echo("  0) Cancel")
+
+    while True:
+        choice = prompt_with_exit(">")
+        try:
+            idx = int(choice.strip())
+        except ValueError:
+            click.echo("Please enter a number.")
+            continue
+        if allow_cancel and idx == 0:
+            return None
+        if 1 <= idx <= len(items):
+            return items[idx - 1][0]
+        click.echo("Invalid choice.")
+
+
 # ---------------------------------------------------------------------------
 # Multi-Pi helpers
 # ---------------------------------------------------------------------------
@@ -310,9 +347,12 @@ def first_run_setup() -> dict:
 
         # Which Pi?
         if pi_names:
-            target_pi = prompt_with_exit(
-                f"  Target Pi ({', '.join(pi_names)})", default=default_pi
-            )
+            if len(pi_names) == 1:
+                target_pi = pi_names[0]
+                click.echo(f"  Target Pi: {target_pi}")
+            else:
+                items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+                target_pi = numbered_select(items, "  Select target Pi", allow_cancel=False)
         else:
             target_pi = ""
 

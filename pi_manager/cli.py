@@ -21,6 +21,7 @@ from .config import (
     add_pi,
     remove_pi,
     prompt_with_exit,
+    numbered_select,
 )
 
 console = Console()
@@ -116,6 +117,9 @@ def cli(ctx):
         # No subcommand → launch interactive REPL
         from .repl import start_repl
         start_repl()
+    elif ctx.invoked_subcommand == "update":
+        # update works without full setup
+        ctx.obj["config"] = load_config() or {}
     else:
         ctx.obj["config"] = ensure_config()
 
@@ -461,10 +465,13 @@ def add_project_cmd(ctx):
         # Target Pi
         pi_names = get_pi_names(config)
         if pi_names:
-            default_pi = get_default_pi(config) or pi_names[0]
-            target_pi = prompt_with_exit(
-                f"Target Pi ({', '.join(pi_names)})", default=default_pi
-            )
+            if len(pi_names) == 1:
+                target_pi = pi_names[0]
+                console.print(f"Target Pi: [bold]{target_pi}[/bold]")
+            else:
+                pis = config.get("pis", {})
+                items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+                target_pi = numbered_select(items, "Select target Pi", allow_cancel=False)
         else:
             target_pi = ""
 
@@ -529,6 +536,104 @@ def remove_project_cmd(ctx, name):
         projects = config.get("projects", {})
         if projects:
             console.print(f"Available: {', '.join(projects.keys())}")
+
+
+# ---------------------------------------------------------------------------
+# Update
+# ---------------------------------------------------------------------------
+
+
+def do_update(config: dict) -> None:
+    """Update PiManager from git repo. Shared between CLI and REPL."""
+    import re
+    from pathlib import Path
+
+    repo_path = config.get("install_path", "")
+    if not repo_path or not Path(repo_path).is_dir():
+        console.print("[cyan]PiManager needs to know where the git repo is cloned.[/cyan]")
+        try:
+            repo_path = prompt_with_exit("Path to PiManager git repo")
+        except UserExit:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+        config["install_path"] = str(Path(repo_path).expanduser().resolve())
+        save_config(config)
+        repo_path = config["install_path"]
+
+    repo = Path(repo_path)
+    if not (repo / ".git").is_dir():
+        console.print(f"[red]Not a git repository: {repo_path}[/red]")
+        return
+
+    # Read version from pyproject.toml
+    def _read_version():
+        try:
+            text = (repo / "pyproject.toml").read_text()
+            m = re.search(r'version\s*=\s*"([^"]+)"', text)
+            return m.group(1) if m else "unknown"
+        except Exception:
+            return "unknown"
+
+    old_version = _read_version()
+    console.print(f"Current version: [bold]{old_version}[/bold]")
+
+    # Save HEAD before pull
+    old_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(repo),
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+    # Git pull
+    console.print("[cyan]Pulling latest changes...[/cyan]")
+    result = subprocess.run(
+        ["git", "pull"], cwd=str(repo),
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        console.print(f"[red]git pull failed: {result.stderr.strip()}[/red]")
+        return
+
+    if "Already up to date" in result.stdout:
+        console.print("[green]Already up to date.[/green]")
+        return
+
+    # Changelog
+    new_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(repo),
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+    log_result = subprocess.run(
+        ["git", "log", "--oneline", f"{old_head}..{new_head}"],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+    if log_result.stdout.strip():
+        console.print("\n[bold]Changelog:[/bold]")
+        for line in log_result.stdout.strip().split("\n"):
+            console.print(f"  {line}")
+
+    # Reinstall via pipx
+    console.print("\n[cyan]Reinstalling via pipx...[/cyan]")
+    install_result = subprocess.run(
+        ["pipx", "install", ".", "--force"],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+
+    if install_result.returncode != 0:
+        console.print(f"[red]Installation failed: {install_result.stderr.strip()}[/red]")
+        return
+
+    new_version = _read_version()
+    console.print(f"\n[bold green]Updated: {old_version} → {new_version}[/bold green]")
+
+
+@cli.command()
+@click.pass_context
+def update(ctx):
+    """Update PiManager to the latest version."""
+    config = ctx.obj["config"]
+    do_update(config)
 
 
 # ---------------------------------------------------------------------------

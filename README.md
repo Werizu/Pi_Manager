@@ -4,9 +4,11 @@ A command-line tool for managing one or more Raspberry Pis from macOS. Deploy we
 
 ## Features
 
-- **Multi-Pi support** — manage multiple Raspberry Pis from one tool, switch between them with `use <name>`
+- **Multi-Pi support** — manage multiple Raspberry Pis from one tool, switch between them with `use`
+- **Numbered selection** — pick Pis, projects, and services by number instead of typing names
 - **Interactive REPL** — type `pi` and stay in a persistent shell with tab-completion and command history
 - **One-shot CLI** — run `pi status` or `pi deploy my-site` directly from your terminal for scripting
+- **Self-updating** — run `pi update` to pull the latest version and reinstall
 - **System monitoring** — CPU, RAM, disk, temperature, uptime at a glance
 - **Service management** — check status, restart individual services or all at once
 - **Log viewing** — tail Apache error logs, with optional real-time streaming
@@ -71,13 +73,17 @@ $ pi
   Type help for commands, exit to quit
 ─────────────────────────────────────
 
-pi > status              # shows all Pis
-pi > status --pi homepi  # just one Pi
-pi > use mediaserver     # switch active Pi
+pi > use                 # numbered Pi selection:
+                         #   1) homepi (192.168.1.100)
+                         #   2) mediaserver (192.168.1.101)
+                         #   0) Cancel
+                         # > 2
 pi > status              # now shows mediaserver only
-pi > deploy my-site
+pi > deploy              # numbered project selection
+pi > restart             # numbered service selection
+pi > status --pi homepi  # explicit Pi via flag
 pi > list-pis
-pi > add-pi              # add another Pi
+pi > update              # self-update from git
 pi > exit
 ```
 
@@ -96,6 +102,7 @@ pi status --pi homepi        # specific Pi
 pi deploy my-site            # uses Pi from project config
 pi deploy my-site --pi mediaserver  # override target Pi
 pi services --pi homepi
+pi update                    # self-update from git
 pi list-pis
 pi add-pi
 ```
@@ -109,27 +116,32 @@ pi add-pi
 | `logs` | Show last 30 lines of Apache error log |
 | `logs -n 100` | Show more lines |
 | `logs --live` | Stream logs in real-time (Ctrl+C to stop) |
-| `restart <service>` | Restart a single service |
+| `restart` | Numbered service selection, then restart |
+| `restart <service>` | Restart a specific service |
 | `restart all` | Restart all monitored services |
 | `ssh` | Open SSH in a new Terminal.app window |
-| `deploy <name>` | Rsync project to Pi + restart Apache + purge Cloudflare cache |
+| `deploy` | Numbered project selection, then deploy |
+| `deploy <name>` | Deploy a specific project (rsync + cache purge) |
 | `list-pis` | List all configured Pis |
 | `add-pi` | Add a new Pi interactively |
 | `remove-pi <name>` | Remove a Pi |
-| `use <pi-name>` | Set active Pi for the REPL session |
+| `use` | Numbered Pi selection to set active Pi |
+| `use <pi-name>` | Set active Pi by name |
 | `config` | Show current configuration |
-| `add-project` | Add a new deploy project interactively (browses remote folders) |
+| `add-project` | Add a new deploy project (numbered Pi/folder selection) |
 | `list-projects` | List all configured projects |
 | `remove-project <name>` | Remove a project |
 | `setup` | Re-run the setup wizard |
+| `update` | Update PiManager to the latest version from git |
 | `shutdown` | Shut down the active Pi (asks for confirmation) |
 | `reboot` | Reboot the active Pi (asks for confirmation) |
 | `uninstall` | Remove config and uninstall PiManager |
 | `help` | Show all available commands |
 | `exit` / `quit` | Exit the REPL |
 
-All commands that target a specific Pi accept `--pi <name>`. Without it:
+All commands that target a specific Pi accept `--pi <name>` for scripting. Without it:
 - `status` and `services` show **all Pis**
+- `use`, `deploy`, and `restart` without arguments show a **numbered selection list**
 - Other commands use the **active Pi** (set via `use`) or the **default Pi**
 
 ## Configuration
@@ -268,6 +280,18 @@ In one-shot mode (`pi ssh`) SSH also opens in a new Terminal.app window. This is
 - *"Connection timed out"* — verify your network connection
 
 ## Updating
+
+The easiest way to update:
+
+```bash
+pi update
+```
+
+This pulls the latest changes from git, reinstalls via pipx, and shows a changelog. Your config and SSH keys in `~/.pi-manager/` are never touched.
+
+On first run, `update` asks for the path to your local git clone and remembers it.
+
+Manual update (same thing, just by hand):
 
 ```bash
 cd Pi_Manager
