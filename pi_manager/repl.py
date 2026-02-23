@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -8,12 +9,13 @@ from io import StringIO
 
 from prompt_toolkit import Application
 from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.data_structures import Point
-from prompt_toolkit.formatted_text import HTML, ANSI, FormattedText
+from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl
+from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl, BufferControl
 from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.widgets import TextArea
 from rich.console import Console
@@ -99,11 +101,18 @@ _config: dict = {}
 _output_text: str = ""
 _busy: bool = False
 _active_pi: str | None = None  # Session-level active Pi override
-_output_scroll: int = 0  # Scroll offset for output window
+_output_buffer: Buffer | None = None  # Scrollable output buffer
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
 
 
 def _term_width() -> int:
@@ -241,14 +250,6 @@ def _get_hint() -> HTML:
         '<style fg="ansibrightblack"> to quit</style>'
     )
 
-
-def _get_output():
-    if not _output_text:
-        return HTML('  <style fg="ansibrightblack">Type a command to get started...</style>')
-    try:
-        return ANSI(_output_text)
-    except Exception:
-        return FormattedText([("", _output_text)])
 
 
 # ---------------------------------------------------------------------------
@@ -961,9 +962,18 @@ def _run_uninstall() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _set_output(text: str) -> None:
+    """Update the output buffer with new text (strips ANSI codes)."""
+    global _output_text
+    _output_text = text
+    if _output_buffer is not None:
+        plain = _strip_ansi(text)
+        _output_buffer.set_document(Document(plain, cursor_position=0), bypass_readonly=True)
+
+
 def _on_accept(buff) -> None:
     """Called when the user presses Enter in the input area."""
-    global _output_text, _busy, _active_pi, _output_scroll
+    global _output_text, _busy, _active_pi
 
     text = buff.text.strip()
     if not text:
@@ -972,12 +982,10 @@ def _on_accept(buff) -> None:
     try:
         args = shlex.split(text)
     except ValueError as e:
-        _output_text = f"\033[31mParse error: {e}\033[0m\n"
-        _output_scroll = 0
+        _set_output(f"Parse error: {e}\n")
         _app.invalidate()
         return
 
-    _output_scroll = 0
     cmd = args[0]
 
     # Exit
@@ -987,13 +995,13 @@ def _on_accept(buff) -> None:
 
     # Clear
     if cmd == "clear":
-        _output_text = ""
+        _set_output("")
         _app.invalidate()
         return
 
     # Don't allow concurrent commands
     if _busy:
-        _output_text = "\033[33mCommand still running, please wait...\033[0m\n"
+        _set_output("Command still running, please wait...\n")
         _app.invalidate()
         return
 
@@ -1033,12 +1041,12 @@ def _on_accept(buff) -> None:
         func = interactive_handler
 
         async def run_interactive():
-            global _busy, _output_text
+            global _busy
 
             try:
                 await run_in_terminal(func)
             except Exception as e:
-                _output_text = f"\033[31mError: {e}\033[0m\n"
+                _set_output(f"Error: {e}\n")
             finally:
                 _busy = False
                 _app.invalidate()
@@ -1048,17 +1056,17 @@ def _on_accept(buff) -> None:
 
     # Non-interactive: capture output in background thread
     _busy = True
-    _output_text = "\033[33mRunning...\033[0m\n"
+    _set_output("Running...\n")
     _app.invalidate()
 
     async def run_captured():
-        global _output_text, _busy
+        global _busy
         loop = asyncio.get_event_loop()
         try:
             output = await loop.run_in_executor(None, lambda: _dispatch_captured(args))
-            _output_text = output
+            _set_output(output)
         except Exception as e:
-            _output_text = f"\033[31mError: {e}\033[0m\n"
+            _set_output(f"Error: {e}\n")
         finally:
             _busy = False
             _app.invalidate()
@@ -1101,15 +1109,13 @@ def start_repl() -> None:
 
     separator = Window(height=1, char="\u2500", style="class:separator")
 
-    def _output_cursor_pos():
-        return Point(0, _output_scroll)
+    _output_buffer = Buffer(name="output", read_only=True)
+    # Make module-level reference available for _set_output()
+    import pi_manager.repl as _self
+    _self._output_buffer = _output_buffer
 
     output_window = Window(
-        content=FormattedTextControl(
-            _get_output,
-            focusable=True,
-            get_cursor_position=_output_cursor_pos,
-        ),
+        content=BufferControl(buffer=_output_buffer, focusable=True),
         wrap_lines=True,
         right_margins=[ScrollbarMargin(display_arrows=True)],
     )
@@ -1154,20 +1160,17 @@ def start_repl() -> None:
         else:
             event.app.layout.focus(input_area)
 
-    def _scroll_output(delta: int):
-        global _output_scroll
-        line_count = _output_text.count("\n") + 1 if _output_text else 0
-        _output_scroll = max(0, min(_output_scroll + delta, max(0, line_count - 1)))
-
     @kb.add("pageup")
     def _page_up(event):
         """Scroll output up regardless of focus."""
-        _scroll_output(-16)
+        for _ in range(16):
+            _output_buffer.cursor_up()
 
     @kb.add("pagedown")
     def _page_down(event):
         """Scroll output down regardless of focus."""
-        _scroll_output(16)
+        for _ in range(16):
+            _output_buffer.cursor_down()
 
     # --- Application ---
 
