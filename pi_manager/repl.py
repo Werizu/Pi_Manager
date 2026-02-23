@@ -235,7 +235,7 @@ def _get_hint() -> HTML:
         '  <style fg="ansibrightblack">Type </style>'
         "<b>help</b>"
         '<style fg="ansibrightblack"> for commands, </style>'
-        "<b>Tab</b>"
+        "<b>Shift+Tab</b>"
         '<style fg="ansibrightblack"> to scroll output, </style>'
         "<b>exit</b>"
         '<style fg="ansibrightblack"> to quit</style>'
@@ -1146,7 +1146,7 @@ def start_repl() -> None:
     def _exit(event):
         event.app.exit()
 
-    @kb.add("tab")
+    @kb.add("s-tab")
     def _toggle_focus(event):
         """Toggle focus between input and output areas."""
         if event.app.layout.has_focus(input_area):
