@@ -925,11 +925,18 @@ def _run_start_select() -> None:
 
 
 def _run_update() -> None:
-    """Update PiManager from git repo."""
+    """Update PiManager from git repo, then restart if successful."""
     global _config
+    import os
+    import time as _time
     from .cli import do_update
 
-    do_update(_config)
+    updated = do_update(_config)
+    if updated:
+        console = Console()
+        console.print("\n[cyan]Restarting PiManager...[/cyan]")
+        _time.sleep(0.5)
+        os.execvp(sys.argv[0], sys.argv)
 
 
 def _run_uninstall() -> None:

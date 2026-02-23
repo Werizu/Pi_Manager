@@ -592,8 +592,11 @@ def remove_project_cmd(ctx, name):
 # ---------------------------------------------------------------------------
 
 
-def do_update(config: dict) -> None:
-    """Update PiManager from git repo. Shared between CLI and REPL."""
+def do_update(config: dict) -> bool:
+    """Update PiManager from git repo. Shared between CLI and REPL.
+
+    Returns True if an update was installed, False otherwise.
+    """
     import re
     from pathlib import Path
 
@@ -604,7 +607,7 @@ def do_update(config: dict) -> None:
             repo_path = prompt_with_exit("Path to PiManager git repo")
         except UserExit:
             console.print("[yellow]Cancelled.[/yellow]")
-            return
+            return False
         config["install_path"] = str(Path(repo_path).expanduser().resolve())
         save_config(config)
         repo_path = config["install_path"]
@@ -612,7 +615,7 @@ def do_update(config: dict) -> None:
     repo = Path(repo_path)
     if not (repo / ".git").is_dir():
         console.print(f"[red]Not a git repository: {repo_path}[/red]")
-        return
+        return False
 
     # Read version from pyproject.toml
     def _read_version():
@@ -641,11 +644,11 @@ def do_update(config: dict) -> None:
 
     if result.returncode != 0:
         console.print(f"[red]git pull failed: {result.stderr.strip()}[/red]")
-        return
+        return False
 
     if "Already up to date" in result.stdout:
         console.print("[green]Already up to date.[/green]")
-        return
+        return False
 
     # Changelog
     new_head = subprocess.run(
@@ -671,10 +674,11 @@ def do_update(config: dict) -> None:
 
     if install_result.returncode != 0:
         console.print(f"[red]Installation failed: {install_result.stderr.strip()}[/red]")
-        return
+        return False
 
     new_version = _read_version()
     console.print(f"\n[bold green]Updated: {old_version} → {new_version}[/bold green]")
+    return True
 
 
 @cli.command()
