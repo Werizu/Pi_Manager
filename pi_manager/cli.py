@@ -20,6 +20,9 @@ from .config import (
     resolve_pi,
     add_pi,
     remove_pi,
+    rename_pi,
+    add_service_to_pi,
+    remove_service_from_pi,
     prompt_with_exit,
     numbered_select,
 )
@@ -422,6 +425,263 @@ def remove_pi_cmd(ctx, name):
         pis = config.get("pis", {})
         if pis:
             console.print(f"Available: {', '.join(pis.keys())}")
+
+
+@cli.command("rename-pi")
+@click.argument("old_name")
+@click.argument("new_name")
+@click.pass_context
+def rename_pi_cmd(ctx, old_name, new_name):
+    """Rename a Pi, updating all references (including projects)."""
+    config = ctx.obj["config"]
+
+    if old_name not in config.get("pis", {}):
+        console.print(f"[red]Pi '{old_name}' not found.[/red]")
+        pis = config.get("pis", {})
+        if pis:
+            console.print(f"Available: {', '.join(pis.keys())}")
+        return
+
+    if new_name in config.get("pis", {}):
+        console.print(f"[red]Pi '{new_name}' already exists.[/red]")
+        return
+
+    rename_pi(config, old_name, new_name)
+    console.print(f"[green]Pi '{old_name}' renamed to '{new_name}'.[/green]")
+
+
+@cli.command("edit-pi")
+@click.pass_context
+def edit_pi_cmd(ctx):
+    """Edit an existing Pi's host, user, or SSH key path interactively."""
+    config = ctx.obj["config"]
+    pi_names = get_pi_names(config)
+
+    if not pi_names:
+        console.print("[yellow]No Pis configured. Run `pi add-pi` first.[/yellow]")
+        return
+
+    try:
+        pis = config.get("pis", {})
+        items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+        selected = numbered_select(items, "Select a Pi to edit", allow_cancel=True)
+        if not selected:
+            return
+
+        pi = pis[selected]
+        console.print(f"\nEditing [bold]{selected}[/bold] (leave empty to keep current value)\n")
+
+        new_host = prompt_with_exit(f"Host [{pi['host']}]", default="")
+        new_user = prompt_with_exit(f"User [{pi.get('user', 'pi')}]", default="")
+        new_key = prompt_with_exit(
+            f"SSH key path [{pi.get('ssh_key_path', '~/.pi-manager/keys/id_rsa')}]",
+            default="",
+        )
+
+        changed = False
+        if new_host:
+            pi["host"] = new_host
+            changed = True
+        if new_user:
+            pi["user"] = new_user
+            changed = True
+        if new_key:
+            pi["ssh_key_path"] = new_key
+            changed = True
+
+        if changed:
+            save_config(config)
+            console.print(f"[green]Pi '{selected}' updated.[/green]")
+        else:
+            console.print("[dim]No changes made.[/dim]")
+
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+
+
+@cli.command("add-service")
+@click.argument("name")
+@pi_option
+@click.pass_context
+def add_service_cmd(ctx, name, pi_name):
+    """Add a service to a Pi's monitored services list."""
+    config = ctx.obj["config"]
+
+    if not pi_name:
+        pi_names = get_pi_names(config)
+        if not pi_names:
+            console.print("[yellow]No Pis configured.[/yellow]")
+            return
+        if len(pi_names) == 1:
+            pi_name = pi_names[0]
+        else:
+            try:
+                pis = config.get("pis", {})
+                items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+                pi_name = numbered_select(items, "Select a Pi", allow_cancel=True)
+                if not pi_name:
+                    return
+            except UserExit:
+                console.print("\n[yellow]Cancelled.[/yellow]")
+                return
+
+    if add_service_to_pi(config, pi_name, name):
+        console.print(f"[green]Service '{name}' added to {pi_name}.[/green]")
+    else:
+        pis = config.get("pis", {})
+        if pi_name not in pis:
+            console.print(f"[red]Pi '{pi_name}' not found.[/red]")
+        else:
+            console.print(f"[yellow]Service '{name}' already monitored on {pi_name}.[/yellow]")
+
+
+@cli.command("remove-service")
+@click.argument("name", required=False)
+@pi_option
+@click.pass_context
+def remove_service_cmd(ctx, name, pi_name):
+    """Remove a service from a Pi's monitored services list."""
+    config = ctx.obj["config"]
+
+    if not pi_name:
+        pi_names = get_pi_names(config)
+        if not pi_names:
+            console.print("[yellow]No Pis configured.[/yellow]")
+            return
+        if len(pi_names) == 1:
+            pi_name = pi_names[0]
+        else:
+            try:
+                pis = config.get("pis", {})
+                items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+                pi_name = numbered_select(items, "Select a Pi", allow_cancel=True)
+                if not pi_name:
+                    return
+            except UserExit:
+                console.print("\n[yellow]Cancelled.[/yellow]")
+                return
+
+    # If no service name given, show numbered selection
+    if not name:
+        services = config.get("pis", {}).get(pi_name, {}).get("services", [])
+        if not services:
+            console.print(f"[yellow]No services configured for {pi_name}.[/yellow]")
+            return
+        try:
+            items = [(s, s) for s in services]
+            name = numbered_select(items, f"Remove service from {pi_name}", allow_cancel=True)
+            if not name:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    if remove_service_from_pi(config, pi_name, name):
+        console.print(f"[green]Service '{name}' removed from {pi_name}.[/green]")
+    else:
+        pis = config.get("pis", {})
+        if pi_name not in pis:
+            console.print(f"[red]Pi '{pi_name}' not found.[/red]")
+        else:
+            console.print(f"[red]Service '{name}' not found on {pi_name}.[/red]")
+            services = pis[pi_name].get("services", [])
+            if services:
+                console.print(f"Current services: {', '.join(services)}")
+
+
+@cli.command("open")
+@click.argument("project", required=False)
+@click.pass_context
+def open_cmd(ctx, project):
+    """Open a project's website URL in the default browser."""
+    import subprocess as sp
+
+    config = ctx.obj["config"]
+    projects = config.get("projects", {})
+
+    if not projects:
+        console.print("[yellow]No projects configured.[/yellow]")
+        return
+
+    if not project:
+        try:
+            items = [
+                (name, f"{name} (zone: {info.get('cloudflare_zone_id', '-')})")
+                for name, info in projects.items()
+            ]
+            project = numbered_select(items, "Select a project to open", allow_cancel=True)
+            if not project:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    proj = projects.get(project)
+    if not proj:
+        console.print(f"[red]Unknown project: {project}[/red]")
+        if projects:
+            console.print(f"Available: {', '.join(projects.keys())}")
+        return
+
+    url = proj.get("url")
+    if not url:
+        console.print(
+            f"[yellow]No URL configured for '{project}'.[/yellow]\n"
+            f"[dim]Add a 'url' field to the project in ~/.pi-manager/config.json[/dim]"
+        )
+        return
+
+    console.print(f"[cyan]Opening {url}...[/cyan]")
+    sp.run(["open", url])
+
+
+@cli.command("cache-clear")
+@click.argument("project", required=False)
+@click.pass_context
+def cache_clear_cmd(ctx, project):
+    """Clear Cloudflare cache for a project without deploying."""
+    from .deploy import purge_cloudflare_cache
+
+    config = ctx.obj["config"]
+    projects = config.get("projects", {})
+
+    if not projects:
+        console.print("[yellow]No projects configured.[/yellow]")
+        return
+
+    if not project:
+        try:
+            items = [
+                (name, f"{name} (zone: {info.get('cloudflare_zone_id', '-')})")
+                for name, info in projects.items()
+            ]
+            project = numbered_select(items, "Select a project", allow_cancel=True)
+            if not project:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    proj = projects.get(project)
+    if not proj:
+        console.print(f"[red]Unknown project: {project}[/red]")
+        if projects:
+            console.print(f"Available: {', '.join(projects.keys())}")
+        return
+
+    # Build a config dict with the right Cloudflare token
+    pi_name = proj.get("pi")
+    if pi_name and pi_name in config.get("pis", {}):
+        pi = config["pis"][pi_name]
+        token = pi.get("cloudflare_api_token") or config.get("cloudflare_api_token", "")
+    else:
+        token = config.get("cloudflare_api_token", "")
+
+    cf_config = {"cloudflare_api_token": token}
+
+    console.print(f"[cyan]Purging Cloudflare cache for {project}...[/cyan]")
+    if purge_cloudflare_cache(cf_config, proj):
+        console.print(f"[green]Cache cleared for {project}.[/green]")
 
 
 # ---------------------------------------------------------------------------

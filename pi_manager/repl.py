@@ -32,6 +32,9 @@ from .config import (
     add_project,
     remove_project,
     remove_pi,
+    rename_pi,
+    add_service_to_pi,
+    remove_service_from_pi,
     get_pi_config,
     get_pi_names,
     get_default_pi,
@@ -50,8 +53,10 @@ COMMANDS = [
     "ssh", "deploy",
     "config", "setup", "shutdown", "reboot", "update",
     "uninstall", "help", "clear", "exit", "quit",
-    "list-pis", "add-pi", "remove-pi", "use",
+    "list-pis", "add-pi", "remove-pi", "rename-pi", "edit-pi", "use",
     "add-project", "list-projects", "remove-project",
+    "add-service", "remove-service",
+    "open", "cache-clear",
 ]
 
 HELP_TABLE = [
@@ -74,13 +79,21 @@ HELP_TABLE = [
     ("list-pis", "List all configured Pis"),
     ("add-pi", "Add a new Pi interactively"),
     ("remove-pi <name>", "Remove a Pi"),
-    ("use", "Set active Pi (numbered selection)"),
-    ("use <pi-name>", "Set active Pi by name"),
+    ("rename-pi <old> <new>", "Rename a Pi (updates all references)"),
+    ("edit-pi", "Edit a Pi's host, user, or SSH key"),
+    ("use", "Set active Pi (numbered selection, persists)"),
+    ("use <pi-name>", "Set active Pi by name (persists)"),
+    ("add-service <name>", "Add a service to a Pi's monitor list"),
+    ("remove-service", "Remove a service (numbered selection)"),
     ("", ""),
     ("config", "Show current configuration"),
     ("add-project", "Add a new deploy project (numbered selection)"),
     ("list-projects", "List configured projects"),
     ("remove-project <name>", "Remove a project"),
+    ("open", "Open project URL in browser (numbered selection)"),
+    ("open <project>", "Open a specific project's URL"),
+    ("cache-clear", "Clear Cloudflare cache (numbered selection)"),
+    ("cache-clear <project>", "Clear cache for a specific project"),
     ("setup", "Re-run the setup wizard"),
     ("update", "Update PiManager to latest version"),
     ("shutdown", "Shut down the active Pi"),
@@ -92,7 +105,7 @@ HELP_TABLE = [
 ]
 
 # Commands that need direct terminal access (interactive prompts)
-INTERACTIVE_COMMANDS = {"setup", "shutdown", "reboot", "uninstall", "add-pi", "add-project", "update"}
+INTERACTIVE_COMMANDS = {"setup", "shutdown", "reboot", "uninstall", "add-pi", "add-project", "edit-pi", "update"}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -490,11 +503,137 @@ def _dispatch_captured(args: list[str]) -> str:
                             cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
                     elif target:
                         _active_pi = target
+                        _config["default_pi"] = target
+                        save_config(_config)
                         pi_info = _config["pis"][target]
                         cap.print(
                             f"[green]Active Pi set to [bold]{target}[/bold] "
                             f"({pi_info.get('user', 'pi')}@{pi_info['host']})[/green]"
                         )
+
+            elif cmd == "rename-pi":
+                if len(rest) < 2:
+                    cap.print("[yellow]Usage: rename-pi <old-name> <new-name>[/yellow]")
+                else:
+                    old_name, new_name = rest[0], rest[1]
+                    if old_name not in _config.get("pis", {}):
+                        cap.print(f"[red]Pi '{old_name}' not found.[/red]")
+                        pis = _config.get("pis", {})
+                        if pis:
+                            cap.print(f"Available: {', '.join(pis.keys())}")
+                    elif new_name in _config.get("pis", {}):
+                        cap.print(f"[red]Pi '{new_name}' already exists.[/red]")
+                    else:
+                        rename_pi(_config, old_name, new_name)
+                        if _active_pi == old_name:
+                            _active_pi = new_name
+                        cap.print(f"[green]Pi '{old_name}' renamed to '{new_name}'.[/green]")
+
+            elif cmd == "add-service":
+                if not rest:
+                    cap.print("[yellow]Usage: add-service <name> [--pi <pi-name>][/yellow]")
+                else:
+                    service_name = rest[0]
+                    target_pi = pi_name
+                    if not target_pi:
+                        try:
+                            target_pi = _resolve_effective_pi(None)
+                        except Exception:
+                            cap.print("[red]No Pi specified and no default Pi set.[/red]")
+                            target_pi = None
+                    if target_pi:
+                        if add_service_to_pi(_config, target_pi, service_name):
+                            cap.print(f"[green]Service '{service_name}' added to {target_pi}.[/green]")
+                        else:
+                            if target_pi not in _config.get("pis", {}):
+                                cap.print(f"[red]Pi '{target_pi}' not found.[/red]")
+                            else:
+                                cap.print(f"[yellow]Service '{service_name}' already monitored on {target_pi}.[/yellow]")
+
+            elif cmd == "remove-service":
+                if rest:
+                    service_name = rest[0]
+                    target_pi = pi_name
+                    if not target_pi:
+                        try:
+                            target_pi = _resolve_effective_pi(None)
+                        except Exception:
+                            cap.print("[red]No Pi specified and no default Pi set.[/red]")
+                            target_pi = None
+                    if target_pi:
+                        if remove_service_from_pi(_config, target_pi, service_name):
+                            cap.print(f"[green]Service '{service_name}' removed from {target_pi}.[/green]")
+                        else:
+                            if target_pi not in _config.get("pis", {}):
+                                cap.print(f"[red]Pi '{target_pi}' not found.[/red]")
+                            else:
+                                cap.print(f"[red]Service '{service_name}' not found on {target_pi}.[/red]")
+                                svcs = _config["pis"][target_pi].get("services", [])
+                                if svcs:
+                                    cap.print(f"Current services: {', '.join(svcs)}")
+                else:
+                    # Without args is handled interactively; this is a fallback
+                    cap.print("[yellow]Usage: remove-service <name> [--pi <pi-name>][/yellow]")
+
+            elif cmd == "open":
+                if rest:
+                    project_name = rest[0]
+                    proj = _config.get("projects", {}).get(project_name)
+                    if not proj:
+                        cap.print(f"[red]Unknown project: {project_name}[/red]")
+                        projects = _config.get("projects", {})
+                        if projects:
+                            cap.print(f"Available: {', '.join(projects.keys())}")
+                    else:
+                        url = proj.get("url")
+                        if not url:
+                            cap.print(
+                                f"[yellow]No URL configured for '{project_name}'.[/yellow]\n"
+                                f"[dim]Add a 'url' field to the project in ~/.pi-manager/config.json[/dim]"
+                            )
+                        else:
+                            cap.print(f"[cyan]Opening {url}...[/cyan]")
+                            import subprocess as sp
+                            sp.run(["open", url])
+                else:
+                    # Without args is handled interactively; this is a fallback
+                    cap.print("[yellow]Usage: open <project>[/yellow]")
+                    projects = _config.get("projects", {})
+                    if projects:
+                        for i, (name, info) in enumerate(projects.items(), 1):
+                            url = info.get("url", "(no URL)")
+                            cap.print(f"  {i}) {name} — {url}")
+
+            elif cmd == "cache-clear":
+                if rest:
+                    project_name = rest[0]
+                    proj = _config.get("projects", {}).get(project_name)
+                    if not proj:
+                        cap.print(f"[red]Unknown project: {project_name}[/red]")
+                        projects = _config.get("projects", {})
+                        if projects:
+                            cap.print(f"Available: {', '.join(projects.keys())}")
+                    else:
+                        from .deploy import purge_cloudflare_cache
+
+                        proj_pi = proj.get("pi")
+                        if proj_pi and proj_pi in _config.get("pis", {}):
+                            pi = _config["pis"][proj_pi]
+                            token = pi.get("cloudflare_api_token") or _config.get("cloudflare_api_token", "")
+                        else:
+                            token = _config.get("cloudflare_api_token", "")
+                        cf_config = {"cloudflare_api_token": token}
+                        cap.print(f"[cyan]Purging Cloudflare cache for {project_name}...[/cyan]")
+                        if purge_cloudflare_cache(cf_config, proj):
+                            cap.print(f"[green]Cache cleared for {project_name}.[/green]")
+                else:
+                    # Without args is handled interactively; this is a fallback
+                    cap.print("[yellow]Usage: cache-clear <project>[/yellow]")
+                    projects = _config.get("projects", {})
+                    if projects:
+                        for i, (name, info) in enumerate(projects.items(), 1):
+                            zone = info.get("cloudflare_zone_id", "-")
+                            cap.print(f"  {i}) {name} (zone: {zone})")
 
             else:
                 cap.print(f"[red]Unknown command:[/red] {cmd}")
@@ -768,6 +907,8 @@ def _run_use_select() -> None:
 
     if len(pi_names) == 1:
         _active_pi = pi_names[0]
+        _config["default_pi"] = pi_names[0]
+        save_config(_config)
         pi_info = _config["pis"][pi_names[0]]
         console.print(
             f"[green]Active Pi set to [bold]{pi_names[0]}[/bold] ({pi_info['host']})[/green]"
@@ -782,10 +923,174 @@ def _run_use_select() -> None:
         return
     if selected:
         _active_pi = selected
+        _config["default_pi"] = selected
+        save_config(_config)
         pi_info = _config["pis"][selected]
         console.print(
             f"[green]Active Pi set to [bold]{selected}[/bold] ({pi_info['host']})[/green]"
         )
+
+
+def _run_edit_pi() -> None:
+    """Interactive wizard for editing a Pi's settings."""
+    global _config
+    console = Console()
+    pi_names = get_pi_names(_config)
+
+    if not pi_names:
+        console.print("[yellow]No Pis configured. Run 'add-pi' or 'setup'.[/yellow]")
+        return
+
+    pis = _config.get("pis", {})
+    items = [(n, f"{n} ({pis[n]['host']})") for n in pi_names]
+    try:
+        selected = numbered_select(items, "Select a Pi to edit", allow_cancel=True)
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+
+    pi = pis[selected]
+    console.print(f"\nEditing [bold]{selected}[/bold] (leave empty to keep current value)\n")
+
+    try:
+        new_host = prompt_with_exit(f"Host [{pi['host']}]", default="")
+        new_user = prompt_with_exit(f"User [{pi.get('user', 'pi')}]", default="")
+        new_key = prompt_with_exit(
+            f"SSH key path [{pi.get('ssh_key_path', '~/.pi-manager/keys/id_rsa')}]",
+            default="",
+        )
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+
+    changed = False
+    if new_host:
+        pi["host"] = new_host
+        changed = True
+    if new_user:
+        pi["user"] = new_user
+        changed = True
+    if new_key:
+        pi["ssh_key_path"] = new_key
+        changed = True
+
+    if changed:
+        save_config(_config)
+        console.print(f"[green]Pi '{selected}' updated.[/green]")
+    else:
+        console.print("[dim]No changes made.[/dim]")
+
+
+def _run_remove_service_select() -> None:
+    """Interactive service selection for 'remove-service' without arguments."""
+    global _config
+    console = Console()
+
+    try:
+        effective_pi = _resolve_effective_pi(None)
+    except Exception:
+        pi_names = get_pi_names(_config)
+        if not pi_names:
+            console.print("[yellow]No Pis configured.[/yellow]")
+            return
+        items = [(n, f"{n} ({_config['pis'][n]['host']})") for n in pi_names]
+        try:
+            effective_pi = numbered_select(items, "Select a Pi")
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+        if not effective_pi:
+            return
+
+    services = _config.get("pis", {}).get(effective_pi, {}).get("services", [])
+    if not services:
+        console.print(f"[yellow]No services configured for {effective_pi}.[/yellow]")
+        return
+
+    items = [(s, s) for s in services]
+    try:
+        selected = numbered_select(items, f"Remove service from {effective_pi}")
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+
+    if remove_service_from_pi(_config, effective_pi, selected):
+        console.print(f"[green]Service '{selected}' removed from {effective_pi}.[/green]")
+
+
+def _run_open_select() -> None:
+    """Interactive project selection for 'open' without arguments."""
+    import subprocess as sp
+    console = Console()
+    projects = _config.get("projects", {})
+
+    if not projects:
+        console.print("[yellow]No projects configured.[/yellow]")
+        return
+
+    items = [
+        (name, f"{name} — {info.get('url', '(no URL)')}")
+        for name, info in projects.items()
+    ]
+    try:
+        selected = numbered_select(items, "Select a project to open")
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+
+    proj = projects[selected]
+    url = proj.get("url")
+    if not url:
+        console.print(
+            f"[yellow]No URL configured for '{selected}'.[/yellow]\n"
+            f"[dim]Add a 'url' field to the project in ~/.pi-manager/config.json[/dim]"
+        )
+        return
+
+    console.print(f"[cyan]Opening {url}...[/cyan]")
+    sp.run(["open", url])
+
+
+def _run_cache_clear_select() -> None:
+    """Interactive project selection for 'cache-clear' without arguments."""
+    from .deploy import purge_cloudflare_cache
+    console = Console()
+    projects = _config.get("projects", {})
+
+    if not projects:
+        console.print("[yellow]No projects configured.[/yellow]")
+        return
+
+    items = [
+        (name, f"{name} (zone: {info.get('cloudflare_zone_id', '-')})")
+        for name, info in projects.items()
+    ]
+    try:
+        selected = numbered_select(items, "Select a project")
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+
+    proj = projects[selected]
+    proj_pi = proj.get("pi")
+    if proj_pi and proj_pi in _config.get("pis", {}):
+        pi = _config["pis"][proj_pi]
+        token = pi.get("cloudflare_api_token") or _config.get("cloudflare_api_token", "")
+    else:
+        token = _config.get("cloudflare_api_token", "")
+    cf_config = {"cloudflare_api_token": token}
+
+    console.print(f"[cyan]Purging Cloudflare cache for {selected}...[/cyan]")
+    if purge_cloudflare_cache(cf_config, proj):
+        console.print(f"[green]Cache cleared for {selected}.[/green]")
 
 
 def _run_deploy_select() -> None:
@@ -1064,6 +1369,7 @@ def _on_accept(buff) -> None:
             "uninstall": _run_uninstall,
             "add-pi": _run_add_pi,
             "add-project": _run_add_project,
+            "edit-pi": _run_edit_pi,
             "update": _run_update,
         }
         interactive_handler = static_handlers.get(cmd)
@@ -1079,6 +1385,12 @@ def _on_accept(buff) -> None:
         interactive_handler = _run_stop_select
     elif cmd == "start" and len(args) == 1:
         interactive_handler = _run_start_select
+    elif cmd == "remove-service" and len(args) == 1:
+        interactive_handler = _run_remove_service_select
+    elif cmd == "open" and len(args) == 1:
+        interactive_handler = _run_open_select
+    elif cmd == "cache-clear" and len(args) == 1:
+        interactive_handler = _run_cache_clear_select
 
     if interactive_handler is not None:
         _busy = True

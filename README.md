@@ -106,6 +106,12 @@ pi stop apache2 --pi homepi  # stop a service
 pi start apache2             # start a service
 pi ping                      # check all Pis reachable
 pi ping --pi homepi          # check specific Pi
+pi rename-pi homepi mainpi   # rename a Pi everywhere
+pi edit-pi                   # edit host/user/key interactively
+pi add-service nginx         # add to active Pi's service list
+pi remove-service             # numbered selection to remove
+pi open my-site              # open project URL in browser
+pi cache-clear my-site       # purge Cloudflare cache only
 pi update                    # self-update from git
 pi list-pis
 pi add-pi
@@ -134,12 +140,21 @@ pi add-pi
 | `list-pis` | List all configured Pis |
 | `add-pi` | Add a new Pi interactively |
 | `remove-pi <name>` | Remove a Pi |
-| `use` | Numbered Pi selection to set active Pi |
-| `use <pi-name>` | Set active Pi by name |
+| `rename-pi <old> <new>` | Rename a Pi (updates all references including projects) |
+| `edit-pi` | Edit a Pi's host, user, or SSH key path interactively |
+| `use` | Numbered Pi selection to set active Pi (persists to config) |
+| `use <pi-name>` | Set active Pi by name (persists to config) |
+| `add-service <name>` | Add a service to a Pi's monitored services list |
+| `remove-service` | Numbered service selection, then remove from monitor list |
+| `remove-service <name>` | Remove a specific service from monitor list |
 | `config` | Show current configuration |
 | `add-project` | Add a new deploy project (numbered Pi/folder selection) |
 | `list-projects` | List all configured projects |
 | `remove-project <name>` | Remove a project |
+| `open` | Numbered project selection, then open URL in browser |
+| `open <name>` | Open a specific project's URL in the default browser |
+| `cache-clear` | Numbered project selection, then purge Cloudflare cache |
+| `cache-clear <name>` | Purge Cloudflare cache for a specific project (no deploy) |
 | `setup` | Re-run the setup wizard |
 | `update` | Update PiManager to the latest version from git |
 | `shutdown` | Shut down the active Pi (asks for confirmation) |
@@ -192,13 +207,15 @@ Example `config.json`:
       "local_path": "/Users/you/Sites/my-site/",
       "remote_path": "/var/www/my-site/",
       "pi": "homepi",
-      "cloudflare_zone_id": "zone-id-for-my-site"
+      "cloudflare_zone_id": "zone-id-for-my-site",
+      "url": "https://my-site.example.com"
     },
     "blog": {
       "local_path": "/Users/you/Sites/blog/",
       "remote_path": "/var/www/blog/",
       "pi": "homepi",
-      "cloudflare_zone_id": "different-zone-id-for-blog"
+      "cloudflare_zone_id": "different-zone-id-for-blog",
+      "url": "https://blog.example.com"
     }
   }
 }
@@ -207,6 +224,7 @@ Example `config.json`:
 - **`cloudflare_api_token`** (global) — used for all Pis by default
 - **`cloudflare_api_token`** (per-Pi, optional) — overrides the global token if a Pi uses a different Cloudflare account
 - **`cloudflare_zone_id`** — always per project, since one Pi can host multiple sites with different zones
+- **`url`** (per-project, optional) — website URL used by the `open` command to launch in your browser
 
 **Migration:** If you're upgrading from v0.1.0, your old single-Pi config is automatically migrated to the new format on first load. No manual changes needed.
 
@@ -257,7 +275,7 @@ pi-manager/
 In `~/.pi-manager/keys/`. This keeps them out of any project directory so they can't accidentally be committed to git.
 
 **Can I manage multiple Pis?**
-Yes. Run `pi add-pi` to add more Pis at any time, or add them during `pi setup`. Use `pi list-pis` to see all configured Pis. In the REPL, `use <name>` switches the active Pi for the session.
+Yes. Run `pi add-pi` to add more Pis at any time, or add them during `pi setup`. Use `pi list-pis` to see all configured Pis. `use <name>` switches the active Pi and persists it as the default so it survives restarts.
 
 **How does Pi resolution work for commands?**
 1. Explicit `--pi <name>` always wins
@@ -269,7 +287,7 @@ Yes. Run `pi add-pi` to add more Pis at any time, or add them during `pi setup`.
 No. PiManager automatically migrates old configs to the new multi-Pi format. Your existing Pi becomes `pi` (the default name).
 
 **How do I change my SSH key path?**
-Run `pi setup` to reconfigure, or edit `ssh_key_path` in the config file.
+Run `pi edit-pi` to change host, user, or SSH key path interactively. Or run `pi setup` to reconfigure from scratch, or edit the config file directly.
 
 **How do I get a Cloudflare API token?**
 Go to the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) and create a token with **Zone > Cache Purge > Purge** permission. Add it during setup or edit the config file.
@@ -278,7 +296,13 @@ Go to the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens)
 Yes. Run `add-project` for each site (assign each to a Pi), then `deploy <name>` to deploy individually.
 
 **How do I monitor custom services?**
-Enter your services as a comma-separated list during setup, or edit the `services` array per Pi in the config file.
+Enter your services as a comma-separated list during setup, use `pi add-service <name>` / `pi remove-service` to manage them at any time, or edit the `services` array per Pi in the config file.
+
+**How does `open` know the URL for a project?**
+Add a `url` field to the project in `~/.pi-manager/config.json`, e.g. `"url": "https://my-site.example.com"`. The `open` command uses macOS `open` to launch it in your default browser.
+
+**Can I clear the Cloudflare cache without deploying?**
+Yes. Run `pi cache-clear <project>` (or just `pi cache-clear` for a numbered selection). This reuses the same Cloudflare purge logic as `deploy` but skips rsync and Apache restart.
 
 **SSH opens in a new window — can I use the current terminal instead?**
 In one-shot mode (`pi ssh`) SSH also opens in a new Terminal.app window. This is by design so the REPL stays usable. For an inline session, run `ssh -i ~/.pi-manager/keys/id_rsa pi@your-pi-ip` directly.

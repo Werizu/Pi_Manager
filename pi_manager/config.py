@@ -201,6 +201,56 @@ def remove_pi(config: dict, name: str) -> bool:
     return True
 
 
+def rename_pi(config: dict, old_name: str, new_name: str) -> bool:
+    """Rename a Pi in config, updating all references. Returns True on success."""
+    pis = config.get("pis", {})
+    if old_name not in pis:
+        return False
+    if new_name in pis:
+        return False
+
+    # Move the Pi entry
+    pis[new_name] = pis.pop(old_name)
+
+    # Update default_pi
+    if config.get("default_pi") == old_name:
+        config["default_pi"] = new_name
+
+    # Update project references
+    for proj in config.get("projects", {}).values():
+        if proj.get("pi") == old_name:
+            proj["pi"] = new_name
+
+    save_config(config)
+    return True
+
+
+def add_service_to_pi(config: dict, pi_name: str, service: str) -> bool:
+    """Add a service to a Pi's monitored services list. Returns True on success."""
+    pis = config.get("pis", {})
+    if pi_name not in pis:
+        return False
+    services = pis[pi_name].setdefault("services", [])
+    if service in services:
+        return False
+    services.append(service)
+    save_config(config)
+    return True
+
+
+def remove_service_from_pi(config: dict, pi_name: str, service: str) -> bool:
+    """Remove a service from a Pi's monitored services list. Returns True on success."""
+    pis = config.get("pis", {})
+    if pi_name not in pis:
+        return False
+    services = pis[pi_name].get("services", [])
+    if service not in services:
+        return False
+    services.remove(service)
+    save_config(config)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Config I/O
 # ---------------------------------------------------------------------------
