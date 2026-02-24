@@ -682,32 +682,69 @@ def _dispatch_captured(args: list[str]) -> str:
                 elif rest[0] == "set":
                     parts = rest[1:]
                     if len(parts) < 2:
-                        cap.print("[yellow]Usage: tailscale set <pi-name> <ip>[/yellow]")
+                        cap.print("[yellow]Usage: tailscale set <pi-name|number> <ip>[/yellow]")
+                        pi_names = get_pi_names(_config)
+                        if pi_names:
+                            for i, n in enumerate(pi_names, 1):
+                                cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
                     else:
                         ts_ip = parts[-1]
-                        ts_pi_name = " ".join(parts[:-1])
-                        if set_tailscale_ip(_config, ts_pi_name, ts_ip):
-                            cap.print(f"[green]Tailscale IP for '{ts_pi_name}' set to {ts_ip}.[/green]")
-                        else:
-                            cap.print(f"[red]Pi '{ts_pi_name}' not found.[/red]")
-                            pis = _config.get("pis", {})
-                            if pis:
-                                cap.print(f"Available: {', '.join(pis.keys())}")
+                        raw_name = " ".join(parts[:-1])
+                        pi_names = get_pi_names(_config)
+                        # Allow numeric selection
+                        try:
+                            idx = int(raw_name)
+                            if 1 <= idx <= len(pi_names):
+                                ts_pi_name = pi_names[idx - 1]
+                            else:
+                                cap.print(f"[red]Invalid number: {idx}[/red]")
+                                for i, n in enumerate(pi_names, 1):
+                                    cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
+                                ts_pi_name = None
+                        except ValueError:
+                            ts_pi_name = raw_name
+                        if ts_pi_name:
+                            if set_tailscale_ip(_config, ts_pi_name, ts_ip):
+                                cap.print(f"[green]Tailscale IP for '{ts_pi_name}' set to {ts_ip}.[/green]")
+                            else:
+                                cap.print(f"[red]Pi '{ts_pi_name}' not found.[/red]")
+                                for i, n in enumerate(pi_names, 1):
+                                    cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
                 elif rest[0] == "remove":
                     if len(rest) < 2:
-                        cap.print("[yellow]Usage: tailscale remove <pi-name>[/yellow]")
+                        cap.print("[yellow]Usage: tailscale remove <pi-name|number>[/yellow]")
+                        pi_names = get_pi_names(_config)
+                        if pi_names:
+                            for i, n in enumerate(pi_names, 1):
+                                ts = _config['pis'][n].get('tailscale_host', '-')
+                                cap.print(f"  {i}) {n} (tailscale: {ts})")
                     else:
-                        ts_pi_name = " ".join(rest[1:])
-                        if remove_tailscale_ip(_config, ts_pi_name):
-                            cap.print(f"[green]Tailscale IP removed from '{ts_pi_name}'.[/green]")
-                        else:
-                            pis = _config.get("pis", {})
-                            if ts_pi_name not in pis:
-                                cap.print(f"[red]Pi '{ts_pi_name}' not found.[/red]")
-                                if pis:
-                                    cap.print(f"Available: {', '.join(pis.keys())}")
+                        raw_name = " ".join(rest[1:])
+                        pi_names = get_pi_names(_config)
+                        # Allow numeric selection
+                        try:
+                            idx = int(raw_name)
+                            if 1 <= idx <= len(pi_names):
+                                ts_pi_name = pi_names[idx - 1]
                             else:
-                                cap.print(f"[yellow]No Tailscale IP configured for '{ts_pi_name}'.[/yellow]")
+                                cap.print(f"[red]Invalid number: {idx}[/red]")
+                                for i, n in enumerate(pi_names, 1):
+                                    ts = _config['pis'][n].get('tailscale_host', '-')
+                                    cap.print(f"  {i}) {n} (tailscale: {ts})")
+                                ts_pi_name = None
+                        except ValueError:
+                            ts_pi_name = raw_name
+                        if ts_pi_name:
+                            if remove_tailscale_ip(_config, ts_pi_name):
+                                cap.print(f"[green]Tailscale IP removed from '{ts_pi_name}'.[/green]")
+                            else:
+                                pis = _config.get("pis", {})
+                                if ts_pi_name not in pis:
+                                    cap.print(f"[red]Pi '{ts_pi_name}' not found.[/red]")
+                                    for i, n in enumerate(pi_names, 1):
+                                        cap.print(f"  {i}) {n} ({_config['pis'][n]['host']})")
+                                else:
+                                    cap.print(f"[yellow]No Tailscale IP configured for '{ts_pi_name}'.[/yellow]")
                 else:
                     cap.print(f"[red]Unknown tailscale subcommand: {rest[0]}[/red]")
                     cap.print("[dim]Available: set, remove, list[/dim]")

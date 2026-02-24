@@ -879,27 +879,49 @@ def tailscale():
     """Manage Tailscale VPN IPs for Pis."""
 
 
+def _resolve_pi_name_or_number(config: dict, raw: str) -> str | None:
+    """Resolve a Pi name or numeric index. Returns name or None."""
+    pi_names = get_pi_names(config)
+    try:
+        idx = int(raw)
+        if 1 <= idx <= len(pi_names):
+            return pi_names[idx - 1]
+        console.print(f"[red]Invalid number: {idx}[/red]")
+        for i, n in enumerate(pi_names, 1):
+            console.print(f"  {i}) {n} ({config['pis'][n]['host']})")
+        return None
+    except ValueError:
+        if raw in config.get("pis", {}):
+            return raw
+        console.print(f"[red]Pi '{raw}' not found.[/red]")
+        for i, n in enumerate(pi_names, 1):
+            console.print(f"  {i}) {n} ({config['pis'][n]['host']})")
+        return None
+
+
 @tailscale.command("set")
 @click.argument("name", nargs=-1, required=True)
 @click.pass_context
 def tailscale_set(ctx, name):
-    """Set Tailscale IP for a Pi: tailscale set <pi-name> <ip>"""
+    """Set Tailscale IP for a Pi: tailscale set <pi-name|number> <ip>"""
     parts = list(name)
     if len(parts) < 2:
-        console.print("[yellow]Usage: pi tailscale set <pi-name> <ip>[/yellow]")
+        console.print("[yellow]Usage: pi tailscale set <pi-name|number> <ip>[/yellow]")
+        config = ctx.obj["config"]
+        for i, n in enumerate(get_pi_names(config), 1):
+            console.print(f"  {i}) {n} ({config['pis'][n]['host']})")
         return
 
     ip = parts[-1]
-    pi_name = " ".join(parts[:-1])
+    raw_name = " ".join(parts[:-1])
     config = ctx.obj["config"]
 
-    if set_tailscale_ip(config, pi_name, ip):
-        console.print(f"[green]Tailscale IP for '{pi_name}' set to {ip}.[/green]")
-    else:
-        console.print(f"[red]Pi '{pi_name}' not found.[/red]")
-        pis = config.get("pis", {})
-        if pis:
-            console.print(f"Available: {', '.join(pis.keys())}")
+    pi_name = _resolve_pi_name_or_number(config, raw_name)
+    if not pi_name:
+        return
+
+    set_tailscale_ip(config, pi_name, ip)
+    console.print(f"[green]Tailscale IP for '{pi_name}' set to {ip}.[/green]")
 
 
 @tailscale.command("remove")
@@ -907,19 +929,17 @@ def tailscale_set(ctx, name):
 @click.pass_context
 def tailscale_remove(ctx, name):
     """Remove Tailscale IP from a Pi."""
-    pi_name = " ".join(name)
+    raw_name = " ".join(name)
     config = ctx.obj["config"]
+
+    pi_name = _resolve_pi_name_or_number(config, raw_name)
+    if not pi_name:
+        return
 
     if remove_tailscale_ip(config, pi_name):
         console.print(f"[green]Tailscale IP removed from '{pi_name}'.[/green]")
     else:
-        pis = config.get("pis", {})
-        if pi_name not in pis:
-            console.print(f"[red]Pi '{pi_name}' not found.[/red]")
-            if pis:
-                console.print(f"Available: {', '.join(pis.keys())}")
-        else:
-            console.print(f"[yellow]No Tailscale IP configured for '{pi_name}'.[/yellow]")
+        console.print(f"[yellow]No Tailscale IP configured for '{pi_name}'.[/yellow]")
 
 
 @tailscale.command("list")
