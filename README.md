@@ -69,7 +69,7 @@ Run `pi` with no arguments to enter the interactive shell:
 
 ```
 $ pi
-  PiManager  v0.3.2
+  PiManager  v0.3.3
   2 Pis: homepi(192.168.1.100) · mediaserver(192.168.1.101)
 
   Type help for commands, exit to quit
@@ -104,8 +104,13 @@ pi status --pi homepi        # specific Pi
 pi deploy my-site            # uses Pi from project config
 pi deploy my-site --pi mediaserver  # override target Pi
 pi services --pi homepi
+pi restart                   # numbered service selection
+pi restart apache2           # restart a specific service
+pi stop                      # numbered service selection
 pi stop apache2 --pi homepi  # stop a service
+pi start                     # numbered service selection
 pi start apache2             # start a service
+pi deploy                    # numbered project selection
 pi ping                      # check all Pis reachable
 pi ping --pi homepi          # check specific Pi
 pi rename-pi homepi mainpi   # rename a Pi everywhere
@@ -319,7 +324,7 @@ Yes. Run `pi cache-clear <project>` (or just `pi cache-clear` for a numbered sel
 In one-shot mode (`pi ssh`) SSH also opens in a new Terminal.app window. This is by design so the REPL stays usable. For an inline session, run `ssh -i ~/.pi-manager/keys/id_rsa pi@your-pi-ip` directly.
 
 **How does Tailscale support work?**
-PiManager automatically detects whether you're on your home network (192.168.178.x / Fritz!Box) or not. At home, it connects via the Pi's LAN IP. Away from home, it uses the Tailscale IP if configured. Every connection shows which method is used (e.g. `-> LAN (192.168.178.201)` or `-> Tailscale (100.64.0.1)`). Set Tailscale IPs during setup, via `pi edit-pi`, or with `pi tailscale set <pi> <ip>`.
+PiManager automatically detects whether you're on your home network (192.168.178.x / Fritz!Box) or not. At home, it connects via the Pi's LAN IP. Away from home, it uses the Tailscale IP if configured. Each operation shows the connection method once (e.g. `-> LAN (192.168.178.201)` or `-> Tailscale (100.64.0.1)`). Set Tailscale IPs during setup, via `pi edit-pi`, or with `pi tailscale set <pi> <ip>`.
 
 **Connection issues?**
 - *"Can't reach the Pi"* — check that the Pi is powered on and the IP is correct

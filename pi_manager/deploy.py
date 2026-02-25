@@ -5,7 +5,7 @@ import click
 import requests
 from rich.console import Console
 
-from .ssh import run_remote
+from .ssh import run_remote, resolve_host, print_connection_label
 
 console = Console()
 
@@ -28,7 +28,8 @@ def rsync_project(config: dict, name: str) -> bool:
         local_path += "/"
 
     key_path = Path(config["ssh_key_path"]).expanduser()
-    remote = f"{config['pi_user']}@{config['pi_host']}:{project['remote_path']}"
+    host, _ = resolve_host(config)
+    remote = f"{config['pi_user']}@{host}:{project['remote_path']}"
 
     cmd = [
         "rsync",
@@ -87,6 +88,7 @@ def deploy(config: dict, name: str, pi_name: str = "") -> None:
             console.print(f"Available: {', '.join(projects.keys())}")
         return
 
+    print_connection_label(config)
     target_label = f" to [bold]{pi_name}[/bold]" if pi_name else ""
     console.print(f"[bold green]Deploying {name}{target_label}...[/bold green]")
     if not rsync_project(config, name):

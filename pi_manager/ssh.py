@@ -39,10 +39,16 @@ def resolve_host(pi_config: dict) -> tuple[str, str]:
     )
 
 
+def print_connection_label(config: dict, console_obj: Console | None = None) -> None:
+    """Print the connection method (LAN/Tailscale) once per operation."""
+    c = console_obj or console
+    _, label = resolve_host(config)
+    c.print(f"[dim]→ {label}[/dim]")
+
+
 def _connect(config: dict) -> paramiko.SSHClient:
     """Create and return a connected SSH client."""
     host, label = resolve_host(config)
-    console.print(f"[dim]→ {label}[/dim]")
 
     key_path = Path(config["ssh_key_path"]).expanduser()
     client = paramiko.SSHClient()

@@ -28,7 +28,7 @@ from .config import (
     prompt_with_exit,
     numbered_select,
 )
-from .ssh import SSHError
+from .ssh import SSHError, print_connection_label
 
 console = Console()
 
@@ -136,7 +136,7 @@ def cli(ctx):
 
 
 @cli.command()
-@click.argument("name")
+@click.argument("name", required=False, default=None)
 @pi_option
 @click.pass_context
 def deploy(ctx, name, pi_name):
@@ -144,6 +144,25 @@ def deploy(ctx, name, pi_name):
     from .deploy import deploy as do_deploy
 
     config = ctx.obj["config"]
+
+    # No argument → numbered project selection
+    if not name:
+        projects = config.get("projects", {})
+        if not projects:
+            console.print("[yellow]No projects configured. Run `pi add-project` to add one.[/yellow]")
+            return
+        try:
+            items = [
+                (n, f"{n} → {info.get('remote_path', '?')}")
+                for n, info in projects.items()
+            ]
+            name = numbered_select(items, "Select a project to deploy", allow_cancel=True)
+            if not name:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
     project = config.get("projects", {}).get(name)
     if not project:
         console.print(f"[red]Unknown project: {name}[/red]")
@@ -173,6 +192,7 @@ def status(ctx, pi_name):
     if pi_name:
         pi_cfg = get_pi_config(config, pi_name)
         console.print(f"\n[bold cyan]--- {pi_name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+        print_connection_label(pi_cfg)
         show_status(pi_cfg)
     else:
         # All Pis
@@ -180,6 +200,7 @@ def status(ctx, pi_name):
             pi_cfg = get_pi_config(config, name)
             console.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
             try:
+                print_connection_label(pi_cfg)
                 show_status(pi_cfg)
             except SSHError as e:
                 console.print(f"[red]Offline — {e}[/red]")
@@ -196,12 +217,14 @@ def services(ctx, pi_name):
     if pi_name:
         pi_cfg = get_pi_config(config, pi_name)
         console.print(f"\n[bold cyan]--- {pi_name} ---[/bold cyan]")
+        print_connection_label(pi_cfg)
         show_services(pi_cfg)
     else:
         for name in get_pi_names(config):
             pi_cfg = get_pi_config(config, name)
             console.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
             try:
+                print_connection_label(pi_cfg)
                 show_services(pi_cfg)
             except SSHError as e:
                 console.print(f"[red]Offline — {e}[/red]")
@@ -219,11 +242,12 @@ def logs(ctx, live, lines, pi_name):
     config = ctx.obj["config"]
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
+    print_connection_label(pi_cfg)
     show_logs(pi_cfg, live=live, lines=lines)
 
 
 @cli.command()
-@click.argument("service")
+@click.argument("service", required=False, default=None)
 @pi_option
 @click.pass_context
 def restart(ctx, service, pi_name):
@@ -234,6 +258,23 @@ def restart(ctx, service, pi_name):
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
 
+    # No argument → numbered service selection
+    if not service:
+        services = pi_cfg.get("services", [])
+        if not services:
+            console.print(f"[yellow]No services configured for {pi_name}.[/yellow]")
+            return
+        try:
+            items = [(s, s) for s in services]
+            items.append(("all", "all (restart all services)"))
+            service = numbered_select(items, f"Restart service on {pi_name}", allow_cancel=True)
+            if not service:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    print_connection_label(pi_cfg)
     if service == "all":
         restart_all(pi_cfg)
     else:
@@ -241,7 +282,7 @@ def restart(ctx, service, pi_name):
 
 
 @cli.command()
-@click.argument("service")
+@click.argument("service", required=False, default=None)
 @pi_option
 @click.pass_context
 def stop(ctx, service, pi_name):
@@ -251,11 +292,28 @@ def stop(ctx, service, pi_name):
     config = ctx.obj["config"]
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
+
+    # No argument → numbered service selection
+    if not service:
+        services = pi_cfg.get("services", [])
+        if not services:
+            console.print(f"[yellow]No services configured for {pi_name}.[/yellow]")
+            return
+        try:
+            items = [(s, s) for s in services]
+            service = numbered_select(items, f"Stop service on {pi_name}", allow_cancel=True)
+            if not service:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    print_connection_label(pi_cfg)
     stop_service(pi_cfg, service)
 
 
 @cli.command()
-@click.argument("service")
+@click.argument("service", required=False, default=None)
 @pi_option
 @click.pass_context
 def start(ctx, service, pi_name):
@@ -265,6 +323,23 @@ def start(ctx, service, pi_name):
     config = ctx.obj["config"]
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
+
+    # No argument → numbered service selection
+    if not service:
+        services = pi_cfg.get("services", [])
+        if not services:
+            console.print(f"[yellow]No services configured for {pi_name}.[/yellow]")
+            return
+        try:
+            items = [(s, s) for s in services]
+            service = numbered_select(items, f"Start service on {pi_name}", allow_cancel=True)
+            if not service:
+                return
+        except UserExit:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            return
+
+    print_connection_label(pi_cfg)
     start_service(pi_cfg, service)
 
 
@@ -310,6 +385,7 @@ def shutdown(ctx, pi_name):
     config = ctx.obj["config"]
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
+    print_connection_label(pi_cfg)
     shutdown_pi(pi_cfg)
     sys.exit(0)
 
@@ -324,6 +400,7 @@ def reboot(ctx, pi_name):
     config = ctx.obj["config"]
     pi_name = resolve_pi(config, pi_name)
     pi_cfg = get_pi_config(config, pi_name)
+    print_connection_label(pi_cfg)
     reboot_pi(pi_cfg)
 
 

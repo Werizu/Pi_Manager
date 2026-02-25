@@ -85,7 +85,7 @@ HELP_TABLE = [
     ("add-pi", "Add a new Pi interactively"),
     ("remove-pi <name>", "Remove a Pi"),
     ("rename-pi <old> <new>", "Rename a Pi (updates all references)"),
-    ("edit-pi", "Edit a Pi's host, user, or SSH key"),
+    ("edit-pi", "Edit a Pi's host, user, SSH key, or Tailscale IP"),
     ("use", "Set active Pi (numbered selection, persists)"),
     ("use <pi-name>", "Set active Pi by name (persists)"),
     ("add-service <name>", "Add a service to a Pi's monitor list"),
@@ -349,10 +349,11 @@ def _dispatch_captured(args: list[str]) -> str:
 
             elif cmd == "status":
                 from .monitor import show_status
-                from .ssh import SSHError
+                from .ssh import SSHError, print_connection_label
                 if pi_name:
                     pi_cfg = get_pi_config(_config, pi_name)
                     cap.print(f"\n[bold cyan]--- {pi_name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+                    print_connection_label(pi_cfg, cap)
                     show_status(pi_cfg)
                 else:
                     # Always show all Pis
@@ -360,16 +361,18 @@ def _dispatch_captured(args: list[str]) -> str:
                         pi_cfg = get_pi_config(_config, name)
                         cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
                         try:
+                            print_connection_label(pi_cfg, cap)
                             show_status(pi_cfg)
                         except SSHError as e:
                             cap.print(f"[red]Offline — {e}[/red]")
 
             elif cmd == "services":
                 from .monitor import show_services
-                from .ssh import SSHError
+                from .ssh import SSHError, print_connection_label
                 if pi_name:
                     pi_cfg = get_pi_config(_config, pi_name)
                     cap.print(f"\n[bold cyan]--- {pi_name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+                    print_connection_label(pi_cfg, cap)
                     show_services(pi_cfg)
                 else:
                     # Always show all Pis
@@ -377,6 +380,7 @@ def _dispatch_captured(args: list[str]) -> str:
                         pi_cfg = get_pi_config(_config, name)
                         cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
                         try:
+                            print_connection_label(pi_cfg, cap)
                             show_services(pi_cfg)
                         except SSHError as e:
                             cap.print(f"[red]Offline — {e}[/red]")
@@ -395,8 +399,10 @@ def _dispatch_captured(args: list[str]) -> str:
                                 lines = int(rest[i + 1])
                             except ValueError:
                                 pass
+                    from .ssh import print_connection_label
                     effective_pi = _resolve_effective_pi(pi_name)
                     pi_cfg = get_pi_config(_config, effective_pi)
+                    print_connection_label(pi_cfg, cap)
                     show_logs(pi_cfg, live=False, lines=lines)
 
             elif cmd == "restart":
@@ -404,8 +410,10 @@ def _dispatch_captured(args: list[str]) -> str:
                 if not rest:
                     cap.print("[yellow]Usage: restart <service|all>[/yellow]")
                 else:
+                    from .ssh import print_connection_label
                     effective_pi = _resolve_effective_pi(pi_name)
                     pi_cfg = get_pi_config(_config, effective_pi)
+                    print_connection_label(pi_cfg, cap)
                     if rest[0] == "all":
                         restart_all(pi_cfg)
                     else:
@@ -416,8 +424,10 @@ def _dispatch_captured(args: list[str]) -> str:
                 if not rest:
                     cap.print("[yellow]Usage: stop <service>[/yellow]")
                 else:
+                    from .ssh import print_connection_label
                     effective_pi = _resolve_effective_pi(pi_name)
                     pi_cfg = get_pi_config(_config, effective_pi)
+                    print_connection_label(pi_cfg, cap)
                     stop_service(pi_cfg, rest[0])
 
             elif cmd == "start":
@@ -425,8 +435,10 @@ def _dispatch_captured(args: list[str]) -> str:
                 if not rest:
                     cap.print("[yellow]Usage: start <service>[/yellow]")
                 else:
+                    from .ssh import print_connection_label
                     effective_pi = _resolve_effective_pi(pi_name)
                     pi_cfg = get_pi_config(_config, effective_pi)
+                    print_connection_label(pi_cfg, cap)
                     start_service(pi_cfg, rest[0])
 
             elif cmd == "ping":
@@ -685,17 +697,16 @@ def _dispatch_captured(args: list[str]) -> str:
                         cap.print("[yellow]No Pis configured.[/yellow]")
                     else:
                         items = [
-                            f"{n}  [dim](current: {_config['pis'][n].get('tailscale_host', '—')})[/dim]"
+                            (n, f"{n}  (current: {_config['pis'][n].get('tailscale_host', '—')})")
                             for n in pi_names
                         ]
                         with run_in_terminal():
                             selected = numbered_select(items, "Select Pi", allow_cancel=True)
                             if selected:
-                                ts_pi_name = pi_names[items.index(selected)]
                                 ts_ip = prompt_with_exit("Tailscale IP")
                                 if ts_ip:
-                                    if set_tailscale_ip(_config, ts_pi_name, ts_ip):
-                                        cap.print(f"[green]Tailscale IP for '{ts_pi_name}' set to {ts_ip}.[/green]")
+                                    if set_tailscale_ip(_config, selected, ts_ip):
+                                        cap.print(f"[green]Tailscale IP for '{selected}' set to {ts_ip}.[/green]")
                                     else:
                                         cap.print(f"[red]Failed to set Tailscale IP.[/red]")
                 elif rest[0] == "remove":
@@ -705,17 +716,16 @@ def _dispatch_captured(args: list[str]) -> str:
                         cap.print("[yellow]No Pis with a Tailscale IP configured.[/yellow]")
                     else:
                         items = [
-                            f"{n}  [dim]({_config['pis'][n].get('tailscale_host')})[/dim]"
+                            (n, f"{n}  ({_config['pis'][n].get('tailscale_host')})")
                             for n in ts_pis
                         ]
                         with run_in_terminal():
                             selected = numbered_select(items, "Select Pi to remove Tailscale IP", allow_cancel=True)
                             if selected:
-                                ts_pi_name = ts_pis[items.index(selected)]
-                                if remove_tailscale_ip(_config, ts_pi_name):
-                                    cap.print(f"[green]Tailscale IP removed from '{ts_pi_name}'.[/green]")
+                                if remove_tailscale_ip(_config, selected):
+                                    cap.print(f"[green]Tailscale IP removed from '{selected}'.[/green]")
                                 else:
-                                    cap.print(f"[yellow]No Tailscale IP configured for '{ts_pi_name}'.[/yellow]")
+                                    cap.print(f"[yellow]No Tailscale IP configured for '{selected}'.[/yellow]")
                 else:
                     cap.print(f"[red]Unknown tailscale subcommand: {rest[0]}[/red]")
                     cap.print("[dim]Available: set, remove, list[/dim]")
@@ -1257,7 +1267,9 @@ def _run_restart_select() -> None:
             return
 
         from .services import restart_service, restart_all
+        from .ssh import print_connection_label
 
+        print_connection_label(pi_cfg)
         if selected == "all":
             restart_all(pi_cfg)
         else:
@@ -1308,6 +1320,8 @@ def _run_stop_select() -> None:
             return
 
         from .services import stop_service
+        from .ssh import print_connection_label
+        print_connection_label(pi_cfg)
         stop_service(pi_cfg, selected)
     except SSHError as e:
         console.print(f"[red]{e}[/red]")
@@ -1355,6 +1369,8 @@ def _run_start_select() -> None:
             return
 
         from .services import start_service
+        from .ssh import print_connection_label
+        print_connection_label(pi_cfg)
         start_service(pi_cfg, selected)
     except SSHError as e:
         console.print(f"[red]{e}[/red]")

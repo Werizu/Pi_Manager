@@ -304,12 +304,18 @@ def test_connection(config: dict) -> bool:
     Accepts a legacy-style config (pi_host, pi_user, ssh_key_path)
     as produced by get_pi_config().
     """
+    try:
+        from .ssh import resolve_host, SSHError
+        host, _ = resolve_host(config)
+    except (SSHError, Exception):
+        host = config["pi_host"]
+
     key_path = Path(config["ssh_key_path"]).expanduser()
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         client.connect(
-            hostname=config["pi_host"],
+            hostname=host,
             username=config["pi_user"],
             key_filename=str(key_path),
             timeout=10,
