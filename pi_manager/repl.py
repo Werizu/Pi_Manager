@@ -691,41 +691,9 @@ def _dispatch_captured(args: list[str]) -> str:
                                 mode = "[red]Unavailable[/red]"
                             table.add_row(name, lan_ip, ts_ip or "-", mode)
                         cap.print(table)
-                elif rest[0] == "set":
-                    pi_names = get_pi_names(_config)
-                    if not pi_names:
-                        cap.print("[yellow]No Pis configured.[/yellow]")
-                    else:
-                        items = [
-                            (n, f"{n}  (current: {_config['pis'][n].get('tailscale_host', '—')})")
-                            for n in pi_names
-                        ]
-                        with run_in_terminal():
-                            selected = numbered_select(items, "Select Pi", allow_cancel=True)
-                            if selected:
-                                ts_ip = prompt_with_exit("Tailscale IP")
-                                if ts_ip:
-                                    if set_tailscale_ip(_config, selected, ts_ip):
-                                        cap.print(f"[green]Tailscale IP for '{selected}' set to {ts_ip}.[/green]")
-                                    else:
-                                        cap.print(f"[red]Failed to set Tailscale IP.[/red]")
-                elif rest[0] == "remove":
-                    pi_names = get_pi_names(_config)
-                    ts_pis = [n for n in pi_names if _config['pis'][n].get('tailscale_host')]
-                    if not ts_pis:
-                        cap.print("[yellow]No Pis with a Tailscale IP configured.[/yellow]")
-                    else:
-                        items = [
-                            (n, f"{n}  ({_config['pis'][n].get('tailscale_host')})")
-                            for n in ts_pis
-                        ]
-                        with run_in_terminal():
-                            selected = numbered_select(items, "Select Pi to remove Tailscale IP", allow_cancel=True)
-                            if selected:
-                                if remove_tailscale_ip(_config, selected):
-                                    cap.print(f"[green]Tailscale IP removed from '{selected}'.[/green]")
-                                else:
-                                    cap.print(f"[yellow]No Tailscale IP configured for '{selected}'.[/yellow]")
+                elif rest[0] in ("set", "remove"):
+                    # Handled via interactive dispatch
+                    cap.print("[yellow]This command requires interactive mode.[/yellow]")
                 else:
                     cap.print(f"[red]Unknown tailscale subcommand: {rest[0]}[/red]")
                     cap.print("[dim]Available: set, remove, list[/dim]")
@@ -1188,6 +1156,61 @@ def _run_cache_clear_select() -> None:
         console.print(f"[green]Cache cleared for {selected}.[/green]")
 
 
+def _run_tailscale_set() -> None:
+    """Interactive handler for 'tailscale set'."""
+    console = Console()
+    pi_names = get_pi_names(_config)
+    if not pi_names:
+        console.print("[yellow]No Pis configured.[/yellow]")
+        return
+    items = [
+        (n, f"{n}  (current: {_config['pis'][n].get('tailscale_host', '—')})")
+        for n in pi_names
+    ]
+    try:
+        selected = numbered_select(items, "Select Pi", allow_cancel=True)
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+    try:
+        ts_ip = prompt_with_exit("Tailscale IP")
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if ts_ip:
+        if set_tailscale_ip(_config, selected, ts_ip):
+            console.print(f"[green]Tailscale IP for '{selected}' set to {ts_ip}.[/green]")
+        else:
+            console.print(f"[red]Failed to set Tailscale IP.[/red]")
+
+
+def _run_tailscale_remove() -> None:
+    """Interactive handler for 'tailscale remove'."""
+    console = Console()
+    pi_names = get_pi_names(_config)
+    ts_pis = [n for n in pi_names if _config['pis'][n].get('tailscale_host')]
+    if not ts_pis:
+        console.print("[yellow]No Pis with a Tailscale IP configured.[/yellow]")
+        return
+    items = [
+        (n, f"{n}  ({_config['pis'][n].get('tailscale_host')})")
+        for n in ts_pis
+    ]
+    try:
+        selected = numbered_select(items, "Select Pi to remove Tailscale IP", allow_cancel=True)
+    except UserExit:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+    if not selected:
+        return
+    if remove_tailscale_ip(_config, selected):
+        console.print(f"[green]Tailscale IP removed from '{selected}'.[/green]")
+    else:
+        console.print(f"[yellow]No Tailscale IP configured for '{selected}'.[/yellow]")
+
+
 def _run_deploy_select() -> None:
     """Interactive project selection for 'deploy' without arguments."""
     console = Console()
@@ -1492,6 +1515,10 @@ def _on_accept(buff) -> None:
         interactive_handler = _run_open_select
     elif cmd == "cache-clear" and len(args) == 1:
         interactive_handler = _run_cache_clear_select
+    elif cmd == "tailscale" and len(args) >= 2 and args[1] == "set":
+        interactive_handler = _run_tailscale_set
+    elif cmd == "tailscale" and len(args) >= 2 and args[1] == "remove":
+        interactive_handler = _run_tailscale_remove
 
     if interactive_handler is not None:
         _busy = True
