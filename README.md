@@ -12,6 +12,7 @@ A command-line tool for managing one or more Raspberry Pis from macOS. Deploy we
 - **Self-updating** — run `pi update` to pull the latest version and reinstall
 - **System monitoring** — CPU, RAM, disk, temperature, uptime at a glance
 - **Service management** — check status, start, stop, or restart individual services or all at once
+- **One-command upgrade** — run `pi upgrade-pis` to update all packages on every Pi and restart their services
 - **Log viewing** — tail Apache error logs, with optional real-time streaming
 - **One-command deploys** — rsync to Pi, restart Apache, purge Cloudflare cache
 - **SSH** — opens in a new Terminal.app window so the REPL stays running
@@ -122,6 +123,8 @@ pi cache-clear my-site       # purge Cloudflare cache only
 pi tailscale list            # show LAN/Tailscale IPs and connection mode
 pi tailscale set homepi 100.64.0.1  # set Tailscale IP for a Pi
 pi tailscale remove homepi   # remove Tailscale IP
+pi upgrade-pis               # upgrade packages on all Pis + restart services
+pi upgrade-pis --pi homepi   # upgrade a specific Pi only
 pi update                    # self-update from git
 pi list-pis
 pi add-pi
@@ -168,6 +171,8 @@ pi add-pi
 | `open <name>` | Open a specific project's URL in the default browser |
 | `cache-clear` | Numbered project selection, then purge Cloudflare cache |
 | `cache-clear <name>` | Purge Cloudflare cache for a specific project (no deploy) |
+| `upgrade-pis` | Upgrade all packages on every Pi via apt-get, then restart their services |
+| `upgrade-pis --pi <name>` | Upgrade packages on a specific Pi only |
 | `setup` | Re-run the setup wizard |
 | `update` | Update PiManager to the latest version from git |
 | `shutdown` | Shut down the active Pi (asks for confirmation) |

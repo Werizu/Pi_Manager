@@ -60,3 +60,30 @@ def reboot_pi(config: dict) -> None:
     console.print("[yellow]Rebooting...[/yellow]")
     run_remote(config, "sudo reboot")
     console.print("[green]Reboot command sent.[/green]")
+
+
+def upgrade_pi(config: dict) -> bool:
+    """Run apt-get update && apt-get upgrade -y on the Pi. Returns True on success."""
+    console.print("[cyan]Updating package lists...[/cyan]")
+    _, stderr, code = run_remote(config, "sudo apt-get update -q")
+    if code != 0:
+        console.print(f"[red]apt-get update failed: {stderr}[/red]")
+        return False
+    console.print("[green]Package lists updated.[/green]")
+
+    console.print("[cyan]Upgrading packages (this may take a few minutes)...[/cyan]")
+    stdout, stderr, code = run_remote(
+        config,
+        "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -q",
+    )
+    if code != 0:
+        console.print(f"[red]apt-get upgrade failed: {stderr}[/red]")
+        return False
+
+    for line in stdout.splitlines():
+        if "upgraded" in line or "newly installed" in line:
+            console.print(f"[dim]{line.strip()}[/dim]")
+            break
+
+    console.print("[green]Packages upgraded.[/green]")
+    return True

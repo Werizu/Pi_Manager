@@ -54,7 +54,7 @@ from .config import (
 
 COMMANDS = [
     "status", "services", "logs", "restart", "stop", "start", "ping",
-    "ssh", "deploy",
+    "ssh", "deploy", "upgrade-pis",
     "config", "setup", "shutdown", "reboot", "update",
     "uninstall", "help", "clear", "exit", "quit",
     "list-pis", "add-pi", "remove-pi", "rename-pi", "edit-pi", "use",
@@ -105,6 +105,8 @@ HELP_TABLE = [
     ("cache-clear <project>", "Clear cache for a specific project"),
     ("setup", "Re-run the setup wizard"),
     ("update", "Update PiManager to latest version"),
+    ("upgrade-pis", "Upgrade packages & restart services on all Pis"),
+    ("upgrade-pis --pi <name>", "Upgrade a specific Pi"),
     ("shutdown", "Shut down the active Pi"),
     ("reboot", "Reboot the active Pi"),
     ("uninstall", "Uninstall PiManager"),
@@ -697,6 +699,22 @@ def _dispatch_captured(args: list[str]) -> str:
                 else:
                     cap.print(f"[red]Unknown tailscale subcommand: {rest[0]}[/red]")
                     cap.print("[dim]Available: set, remove, list[/dim]")
+
+            elif cmd == "upgrade-pis":
+                from .services import upgrade_pi, restart_all
+                from .ssh import print_connection_label
+                pi_names_to_upgrade = [pi_name] if pi_name else get_pi_names(_config)
+                for name in pi_names_to_upgrade:
+                    pi_cfg = get_pi_config(_config, name)
+                    cap.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+                    try:
+                        print_connection_label(pi_cfg, cap)
+                        if upgrade_pi(pi_cfg):
+                            cap.print("[cyan]Restarting services...[/cyan]")
+                            restart_all(pi_cfg)
+                            cap.print(f"[bold green]{name} fully updated.[/bold green]")
+                    except SSHError as e:
+                        cap.print(f"[red]Offline — {e}[/red]")
 
             else:
                 cap.print(f"[red]Unknown command:[/red] {cmd}")

@@ -1148,6 +1148,29 @@ def do_update(config: dict) -> bool:
     return True
 
 
+@cli.command("upgrade-pis")
+@pi_option
+@click.pass_context
+def upgrade_pis(ctx, pi_name):
+    """Upgrade packages on Pis via apt-get and restart their services."""
+    from .services import upgrade_pi, restart_all
+
+    config = ctx.obj["config"]
+    pi_names = [pi_name] if pi_name else get_pi_names(config)
+
+    for name in pi_names:
+        pi_cfg = get_pi_config(config, name)
+        console.print(f"\n[bold cyan]--- {name} ({pi_cfg['pi_host']}) ---[/bold cyan]")
+        try:
+            print_connection_label(pi_cfg)
+            if upgrade_pi(pi_cfg):
+                console.print("[cyan]Restarting services...[/cyan]")
+                restart_all(pi_cfg)
+                console.print(f"[bold green]{name} fully updated.[/bold green]")
+        except SSHError as e:
+            console.print(f"[red]Offline — {e}[/red]")
+
+
 @cli.command()
 @click.pass_context
 def update(ctx):
